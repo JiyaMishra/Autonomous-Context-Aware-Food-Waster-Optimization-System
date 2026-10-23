@@ -1,7 +1,21 @@
-"""Pure analytics helpers for waste trends and chronological forecast evaluation."""
+"""Analytics designed for item-level meal data with heterogeneous physical units."""
 import pandas as pd
 
 from backend.app.forecasting import evaluate_predictions, forecast_demand
+
+
+def _row_waste_pct(frame: pd.DataFrame) -> pd.Series:
+    if "waste_rate_pct" in frame.columns:
+        source = pd.to_numeric(frame["waste_rate_pct"], errors="coerce")
+    else:
+        source = pd.Series(float("nan"), index=frame.index)
+    prepared = (
+        pd.to_numeric(frame["prepared_portions"], errors="coerce")
+        if "prepared_portions" in frame.columns
+        else pd.to_numeric(frame["planned_portions"], errors="coerce")
+    )
+    fallback = pd.to_numeric(frame["waste_portions"], errors="coerce").div(prepared.replace(0, float("nan"))) * 100
+    return source.fillna(fallback).fillna(0).clip(lower=0)
 
 
 def waste_trends(history: pd.DataFrame) -> list[dict]:
@@ -9,33 +23,33 @@ def waste_trends(history: pd.DataFrame) -> list[dict]:
         return []
     frame = history.copy()
     frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
+    frame["row_waste_rate_pct"] = _row_waste_pct(frame)
     grouped = frame.groupby("date", as_index=False).agg(
-        served_portions=("served_portions", "sum"),
-        waste_portions=("waste_portions", "sum"),
+        records=("dish", "size"),
+        average_waste_rate_pct=("row_waste_rate_pct", "mean"),
     )
-    grouped["waste_rate"] = grouped.apply(
-        lambda row: round(float(row["waste_portions"] / row["served_portions"]), 4)
-        if row["served_portions"] else 0.0,
-        axis=1,
-    )
+    grouped["waste_rate"] = (grouped["average_waste_rate_pct"] / 100).round(4)
+    grouped["average_waste_rate_pct"] = grouped["average_waste_rate_pct"].round(2)
+    # Do not sum portions across litres/kg, pieces, and servings.
     return grouped.to_dict(orient="records")
 
 
 def dish_waste_analytics(history: pd.DataFrame) -> list[dict]:
     if history.empty:
         return []
-    grouped = history.groupby("dish", as_index=False).agg(
+    frame = history.copy()
+    frame["row_waste_rate_pct"] = _row_waste_pct(frame)
+    if "quantity_unit_hint" not in frame.columns:
+        frame["quantity_unit_hint"] = None
+    grouped = frame.groupby(["dish", "quantity_unit_hint"], dropna=False, as_index=False).agg(
         records=("dish", "size"),
-        served_portions=("served_portions", "sum"),
-        waste_portions=("waste_portions", "sum"),
+        average_waste_rate_pct=("row_waste_rate_pct", "mean"),
+        total_waste_in_item_unit=("waste_portions", "sum"),
     )
-    grouped["waste_rate"] = grouped.apply(
-        lambda row: round(float(row["waste_portions"] / row["served_portions"]), 4)
-        if row["served_portions"] else 0.0,
-        axis=1,
-    )
+    grouped["average_waste_rate_pct"] = grouped["average_waste_rate_pct"].round(2)
+    grouped["quantity_unit_hint"] = grouped["quantity_unit_hint"].fillna("unspecified unit")
     return grouped.sort_values(
-        ["waste_portions", "waste_rate"], ascending=[False, False]
+        ["average_waste_rate_pct", "records"], ascending=[False, False]
     ).to_dict(orient="records")
 
 
