@@ -1,0 +1,2 @@
+date,meal,dish,planned_portions,served_portions,waste_portions,attendance,is_weekend,event_factor,weather
+2026-10-01,lunch,example dal,100,92,8,110,false,1.0,clear
