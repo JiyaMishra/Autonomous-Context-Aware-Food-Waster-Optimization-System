@@ -17,7 +17,10 @@ def test_summary_and_history_endpoints_share_database():
         assert history.status_code == 200
         assert summary.json()["records"] >= len(history.json()) > 0
         payload = summary.json()
-        assert payload["served_portions"] >= payload["waste_portions"]
+        assert payload["unique_dishes"] > 0
+        assert payload["service_days"] > 0
+        assert 0 <= payload["average_waste_rate_pct"] <= 100
+        assert payload["top_waste_dishes"]
         # Limited history should contain the latest rows, not the oldest rows.
         assert max(row["date"] for row in history.json()) == "2026-10-18"
 
