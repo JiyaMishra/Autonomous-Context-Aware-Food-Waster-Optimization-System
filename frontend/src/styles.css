@@ -9,3 +9,5 @@
 .template-link{display:inline-flex;align-items:center;border:1px solid #dfe3d7;background:#fff;border-radius:8px;padding:12px 14px;color:#48624e;text-decoration:none;font-size:11px;font-weight:700}
 
 .context-section{margin:18px 0;padding:14px;background:#f7f8f1;border:1px solid #e8ebdf;border-radius:10px;display:flex;flex-direction:column;gap:12px}.context-section>p{margin:-5px 0 0;color:#778378;font-size:11px;line-height:1.5}.context-section .eyebrow{font-size:9px}.unit-note{display:block;margin:6px 0 0 28px;color:#889286;font-size:10px}
+
+.replace-toggle{display:flex!important;flex-direction:row!important;align-items:flex-start;gap:9px!important;padding:10px 12px;background:#fff8ed;border:1px solid #eadcc4;border-radius:8px;font-size:11px!important;line-height:1.5;color:#76572f!important}.replace-toggle input{margin-top:2px;flex-shrink:0}
