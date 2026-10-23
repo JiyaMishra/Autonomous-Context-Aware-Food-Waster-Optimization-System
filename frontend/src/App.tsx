@@ -162,7 +162,7 @@ export default function App() {
             <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Upload a CSV using the documented dataset columns. Existing records are never silently overwritten.</p></div></div>
             <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
               <label>Meal history CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
-              <div className="tool-actions"><button className="primary-button" type="submit" disabled={uploading}>{uploading ? "Validating and importing…" : "Validate & import CSV"}</button><button className="secondary-button" type="button" onClick={exportCsv}>Export all history ↓</button></div>
+              <div className="tool-actions"><button className="primary-button" type="submit" disabled={uploading}>{uploading ? "Validating and importing…" : "Validate & import CSV"}</button><button className="secondary-button" type="button" onClick={exportCsv}>Export all history ↓</button><a className="template-link" href="/meal_history_template.csv" download>Download CSV template ↓</a></div>
               <p className="helper">Maximum 5 MB. Required columns: date, meal, dish, planned_portions, served_portions, waste_portions, attendance. Invalid rows are rejected with an explanation.</p>
             </form>
           </article>
