@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from backend.app.analytics import dish_waste_analytics, evaluate_history, waste_trends
+from backend.app.analytics import dish_waste_analytics, evaluate_history, meal_waste_analytics, waste_trends
 from backend.app.core.config import settings
 from backend.app.data.pipeline import DataValidationError, normalize_and_validate
 from backend.app.data.repository import history_frame, import_frame, seed_database
@@ -111,6 +111,11 @@ def analytics_trends(db: Session = Depends(get_db)):
 @app.get(f"{settings.api_v1_prefix}/analytics/dishes")
 def analytics_dishes(db: Session = Depends(get_db)):
     return dish_waste_analytics(history_frame(db))
+
+
+@app.get(f"{settings.api_v1_prefix}/analytics/meals")
+def analytics_meals(db: Session = Depends(get_db)):
+    return meal_waste_analytics(history_frame(db))
 
 
 @app.get(f"{settings.api_v1_prefix}/evaluation")
