@@ -21,7 +21,7 @@ type HistoryRow = {
   exam_intensity?: number | null; expected_consumers?: number | null;
 };
 type Trend = { date: string; records: number; average_waste_rate_pct: number; waste_rate: number };
-type Evaluation = {
+type MealMetric = { meal: string; records: number; average_waste_rate_pct: number; average_liking_score: number | null; average_exam_intensity: number | null };\ntype Evaluation = {
   observations: number;
   metrics: { mae: number; rmse: number; wape: number } | null;
   note: string;
@@ -63,20 +63,20 @@ export default function App() {
   const [rainfallMm, setRainfallMm] = useState("");
   const [demandRate, setDemandRate] = useState("");
   const [trends, setTrends] = useState<Trend[]>([]);
-  const [dishOptions, setDishOptions] = useState<string[]>([]);
+  const [dishOptions, setDishOptions] = useState<string[]>([]);\n  const [mealMetrics, setMealMetrics] = useState<MealMetric[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replaceExisting, setReplaceExisting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [s, h, p, t, e, d] = await Promise.all([
+      const [s, h, p, t, e, d, m] = await Promise.all([
         request<Summary>("/summary"), request<HistoryRow[]>("/history?limit=12"),
         request<Plan[]>("/plans?limit=8"), request<Trend[]>("/analytics/trends"),
-        request<Evaluation>("/evaluation"), request<Array<{ dish: string }>>("/analytics/dishes"),
+        request<Evaluation>("/evaluation"), request<Array<{ dish: string }>>("/analytics/dishes"),\n        request<MealMetric[]>("/analytics/meals"),
       ]);
       setSummary(s); setHistory(h); setPlans(p); setTrends(t); setEvaluation(e);
-      setDishOptions(Array.from(new Set(d.map((item) => item.dish))).sort((x, y) => x.localeCompare(y)));
+      setDishOptions(Array.from(new Set(d.map((item) => item.dish))).sort((x, y) => x.localeCompare(y)));\n      setMealMetrics(m);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to connect to the API");
