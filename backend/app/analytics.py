@@ -109,4 +109,4 @@ def meal_waste_analytics(history: pd.DataFrame) -> list[dict]:
     )
     for field in ["average_waste_rate_pct", "average_liking_score", "average_exam_intensity"]:
         grouped[field] = pd.to_numeric(grouped[field], errors="coerce").round(3 if field != "average_waste_rate_pct" else 2)
-    return grouped.sort_values("average_waste_rate_pct", ascending=False).to_dict(orient="records")
+    grouped = grouped.sort_values("average_waste_rate_pct", ascending=False)\n    grouped = grouped.astype(object).where(pd.notna(grouped), None)\n    return grouped.to_dict(orient="records")
