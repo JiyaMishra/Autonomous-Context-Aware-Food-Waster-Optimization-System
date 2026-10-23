@@ -28,3 +28,16 @@
 .help-quick-questions{display:flex;flex-wrap:wrap;gap:7px;padding:4px 0 12px}.help-quick-questions button{border:1px solid #dce7d4;background:#f5f8ef;border-radius:999px;padding:8px 10px;color:#4f6a4b;font-size:10px;text-align:left}
 .help-answer{background:#f5f6ef;border-radius:10px;padding:11px 12px;margin:0 0 12px}.help-answer strong{font-size:11px;color:#354c39}.help-panel form{display:flex;gap:7px;padding-top:10px;border-top:1px solid #eef0e7}.help-panel form input{min-width:0;flex:1;border:1px solid #dfe4d8;border-radius:8px;padding:10px;font-size:11px;outline:none}.help-panel form button{border:0;border-radius:8px;background:#2b4c38;color:#fff;padding:0 13px;font-size:11px;font-weight:700}
 @media(max-width:720px){.help-widget{right:12px;bottom:12px}.help-launcher{padding:13px 16px}.help-panel{max-height:calc(100vh - 90px)}}
+
+
+/* Plain-language plan review and accessible help chat input */
+.plain-plan-explanation{padding:8px 0 2px;color:#637267;font-size:12px;line-height:1.65}
+.plain-plan-explanation p{margin:9px 0}
+.plain-plan-explanation strong{color:#354b3a}
+.plain-plan-explanation .review-reminder{padding:11px 12px;background:#f5f6ee;border-left:3px solid #d5a26e;border-radius:5px;color:#6d7567}
+.technical-details{margin-top:12px;padding-top:10px;border-top:1px solid #eceee5}
+.technical-details summary{font-size:10px;color:#7c897e}
+.help-panel form input:focus{border-color:#8ab975;box-shadow:0 0 0 3px #dff1d5}
+.help-panel form button{flex-shrink:0;min-width:60px;min-height:44px}
+.help-panel form input{min-height:44px}
+.help-answer{overflow-wrap:anywhere}
