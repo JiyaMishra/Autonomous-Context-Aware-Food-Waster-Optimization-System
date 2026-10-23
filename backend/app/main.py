@@ -154,6 +154,13 @@ def forecast(request: ForecastRequest, db: Session = Depends(get_db)):
     result = forecast_demand(
         frame, request.date, request.meal, request.dish,
         request.attendance, request.event_factor,
+        target_context={
+            "synthetic_liking_score": request.synthetic_liking_score,
+            "exam_intensity": request.exam_intensity,
+            "temperature_c": request.temperature_c,
+            "rainfall_mm": request.rainfall_mm,
+            "historical_demand_rate": request.historical_demand_rate,
+        },
     )
     return {"date": request.date, "meal": request.meal, "dish": request.dish, **result}
 
@@ -164,6 +171,13 @@ def create_plan(request: PlanRequest, db: Session = Depends(get_db)):
         history_frame(db), request.date, request.meal, request.dish,
         request.attendance, request.event_factor, request.extra_context,
         request.batch_size, request.minimum_buffer_pct,
+        context_features={
+            "synthetic_liking_score": request.synthetic_liking_score,
+            "exam_intensity": request.exam_intensity,
+            "temperature_c": request.temperature_c,
+            "rainfall_mm": request.rainfall_mm,
+            "historical_demand_rate": request.historical_demand_rate,
+        },
     )
     audit = PlanAudit(
         date=request.date, meal=request.meal, dish=request.dish,
