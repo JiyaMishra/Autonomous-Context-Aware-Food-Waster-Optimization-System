@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -90,6 +91,9 @@ def create_plan(request: PlanRequest, db: Session = Depends(get_db)):
         date=request.date, meal=request.meal, dish=request.dish,
         forecast_portions=plan["forecast_portions"],
         recommended_portions=plan["recommended_portions"],
+        batches=plan["batches"], batch_size=plan["batch_size"],
+        expected_buffer_portions=plan["expected_buffer_portions"],
+        explanation=json.dumps(plan["explanation"]),
     )
     db.add(audit)
     db.commit()
@@ -99,7 +103,7 @@ def create_plan(request: PlanRequest, db: Session = Depends(get_db)):
     return plan
 
 
-@app.post(f"{settings.api_v1_prefix}/plans/{'{'}plan_id{'}'}/feedback")
+@app.post(settings.api_v1_prefix + "/plans/{plan_id}/feedback")
 def review_plan(plan_id: int, feedback: DecisionFeedback, db: Session = Depends(get_db)):
     audit = db.get(PlanAudit, plan_id)
     if audit is None:
@@ -120,7 +124,11 @@ def list_plans(limit: int = 100, db: Session = Depends(get_db)):
         {
             "id": row.id, "date": row.date, "meal": row.meal, "dish": row.dish,
             "forecast_portions": row.forecast_portions,
-            "recommended_portions": row.recommended_portions, "status": row.status,
+            "recommended_portions": row.recommended_portions,
+            "batches": row.batches, "batch_size": row.batch_size,
+            "expected_buffer_portions": row.expected_buffer_portions,
+            "explanation": json.loads(row.explanation or "[]"),
+            "status": row.status,
         }
         for row in records
     ]
