@@ -54,17 +54,40 @@ def health():
 @app.get(f"{settings.api_v1_prefix}/summary")
 def summary(db: Session = Depends(get_db)):
     frame = history_frame(db)
-    served = int(frame["served_portions"].sum()) if not frame.empty else 0
-    waste = int(frame["waste_portions"].sum()) if not frame.empty else 0
-    top_dishes = (
-        frame.groupby("dish", as_index=False)["waste_portions"].sum()
-        .sort_values("waste_portions", ascending=False).head(5).to_dict(orient="records")
-        if not frame.empty else []
-    )
+    if frame.empty:
+        return {
+            "records": 0, "unique_dishes": 0, "service_days": 0,
+            "waste_rate": 0.0, "average_waste_rate_pct": 0.0,
+            "top_waste_dishes": [], "unit_breakdown": [],
+        }
+    dish_metrics = dish_waste_analytics(frame)
+    if "waste_rate_pct" in frame.columns:
+        row_rates = pd.to_numeric(frame["waste_rate_pct"], errors="coerce")
+    else:
+        prepared = pd.to_numeric(frame["prepared_portions"], errors="coerce").fillna(
+            pd.to_numeric(frame["planned_portions"], errors="coerce")
+        )
+        row_rates = pd.to_numeric(frame["waste_portions"], errors="coerce").div(prepared.replace(0, float("nan"))) * 100
+    row_rates = row_rates.fillna(0)
+    unit_col = frame["quantity_unit_hint"].fillna("unspecified unit") if "quantity_unit_hint" in frame.columns else pd.Series(["unspecified unit"] * len(frame))
+    unit_breakdown = []
+    for unit, indices in frame.groupby(unit_col).groups.items():
+        values = row_rates.loc[list(indices)]
+        unit_breakdown.append({
+            "unit": str(unit),
+            "records": int(len(values)),
+            "average_waste_rate_pct": round(float(values.mean()), 2) if len(values) else 0.0,
+        })
+    dates = pd.to_datetime(frame["date"]).dt.date.nunique()
+    average_rate = round(float(row_rates.mean()), 2)
     return {
-        "records": int(len(frame)), "served_portions": served, "waste_portions": waste,
-        "waste_rate": round(waste / served, 4) if served else 0,
-        "top_waste_dishes": top_dishes,
+        "records": int(len(frame)),
+        "unique_dishes": int(frame["dish"].nunique()),
+        "service_days": int(dates),
+        "waste_rate": round(average_rate / 100, 4),
+        "average_waste_rate_pct": average_rate,
+        "top_waste_dishes": dish_metrics[:5],
+        "unit_breakdown": unit_breakdown,
     }
 
 
