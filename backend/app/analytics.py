@@ -89,3 +89,24 @@ def evaluate_history(history: pd.DataFrame, minimum_observations: int = 5) -> di
         "methods": methods,
         "note": "Chronological backtest: each prediction uses only observations dated earlier than its target date. This is a baseline evaluation, not a guarantee of future accuracy.",
     }
+
+
+def meal_waste_analytics(history: pd.DataFrame) -> list[dict]:
+    """Compare average item-level waste rates across meal services."""
+    if history.empty:
+        return []
+    frame = history.copy()
+    frame["row_waste_rate_pct"] = _row_waste_pct(frame)
+    if "synthetic_liking_score" not in frame.columns:
+        frame["synthetic_liking_score"] = float("nan")
+    if "exam_intensity" not in frame.columns:
+        frame["exam_intensity"] = float("nan")
+    grouped = frame.groupby("meal", as_index=False).agg(
+        records=("dish", "size"),
+        average_waste_rate_pct=("row_waste_rate_pct", "mean"),
+        average_liking_score=("synthetic_liking_score", "mean"),
+        average_exam_intensity=("exam_intensity", "mean"),
+    )
+    for field in ["average_waste_rate_pct", "average_liking_score", "average_exam_intensity"]:
+        grouped[field] = grouped[field].round(3 if field != "average_waste_rate_pct" else 2)
+    return grouped.sort_values("average_waste_rate_pct", ascending=False).to_dict(orient="records")
