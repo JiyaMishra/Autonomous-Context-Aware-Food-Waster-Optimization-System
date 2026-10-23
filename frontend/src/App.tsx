@@ -15,6 +15,13 @@ type Plan = {
 type HistoryRow = {
   date: string; meal: string; dish: string; served_portions: number; waste_portions: number;
 };
+type Trend = { date: string; served_portions: number; waste_portions: number; waste_rate: number };
+type Evaluation = {
+  observations: number;
+  metrics: { mae: number; rmse: number; wape: number } | null;
+  note: string;
+  methods?: Record<string, number>;
+};
 
 function todayLocal() {
   const d = new Date();
