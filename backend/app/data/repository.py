@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from backend.app.data.pipeline import load_csv
@@ -70,9 +71,34 @@ def import_frame(db: Session, frame: pd.DataFrame) -> tuple[int, int]:
     return inserted, skipped
 
 
+def ensure_source_columns() -> None:
+    """Add nullable source-data columns to an existing SQLite/Postgres database."""
+    column_types = {
+        "day_of_week": "VARCHAR(16)",
+        "menu_version": "INTEGER",
+        "synthetic_liking_score": "FLOAT",
+        "exam_intensity": "FLOAT",
+        "temperature_c": "FLOAT",
+        "rainfall_mm": "FLOAT",
+        "hostel_attendance_estimate": "INTEGER",
+        "historical_demand_rate": "FLOAT",
+        "expected_consumers": "INTEGER",
+        "recommended_preparation_portions": "INTEGER",
+        "prepared_portions": "INTEGER",
+        "waste_rate_pct": "FLOAT",
+        "quantity_unit_hint": "VARCHAR(40)",
+    }
+    existing = {column["name"] for column in inspect(engine).get_columns("meal_history")}
+    with engine.begin() as connection:
+        for name, sql_type in column_types.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE meal_history ADD COLUMN {name} {sql_type} NULL"))
+
+
 def seed_database(csv_path: str | Path) -> None:
-    """Seed the small synthetic fixture only when explicitly enabled by config."""
+    """Seed the synthetic fixture only when explicitly enabled by config."""
     Base.metadata.create_all(bind=engine)
+    ensure_source_columns()
     # Real operators should upload their approved menu-history dataset. This
     # prevents the app from mixing demo records with the user's source dataset.
     import os
