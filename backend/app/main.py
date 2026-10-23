@@ -3,7 +3,7 @@ from io import BytesIO, StringIO
 from pathlib import Path
 
 import pandas as pd
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -114,7 +114,7 @@ def evaluation(db: Session = Depends(get_db)):
 
 
 @app.post(f"{settings.api_v1_prefix}/data/upload")
-async def upload_history(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_history(file: UploadFile = File(...), replace_existing: bool = Form(default=False), db: Session = Depends(get_db)):
     if not file.filename or Path(file.filename).suffix.lower() != ".csv":
         raise HTTPException(status_code=400, detail="Upload a .csv file.")
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -127,13 +127,21 @@ async def upload_history(file: UploadFile = File(...), db: Session = Depends(get
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not read CSV: {exc}") from exc
+    if replace_existing:
+        db.query(models.MealHistory).delete(synchronize_session=False)
+        db.flush()
     inserted, skipped = import_frame(db, validated)
     return {
         "filename": Path(file.filename).name,
         "rows_received": int(len(validated)),
         "inserted": inserted,
         "skipped_duplicates": skipped,
-        "message": "Validated rows imported. Existing date/meal/dish keys were not overwritten.",
+        "replaced_existing": replace_existing,
+        "message": (
+            "Existing history was replaced with this validated dataset."
+            if replace_existing else
+            "Validated rows imported. Existing date/meal/dish keys were not overwritten."
+        ),
     }
 
 
