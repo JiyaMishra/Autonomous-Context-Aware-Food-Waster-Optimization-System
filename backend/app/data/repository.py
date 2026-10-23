@@ -96,19 +96,19 @@ def ensure_source_columns() -> None:
 
 
 def seed_database(csv_path: str | Path) -> None:
-    """Seed the synthetic fixture only when explicitly enabled by config."""
+    """Load the repository's configured source CSV only when history is empty."""
     Base.metadata.create_all(bind=engine)
     ensure_source_columns()
-    # Real operators should upload their approved menu-history dataset. This
-    # prevents the app from mixing demo records with the user's source dataset.
-    import os
-    if os.getenv("MESSWISE_SEED_DEMO_DATA", "false").strip().lower() not in {"1", "true", "yes"}:
-        return
     with SessionLocal() as db:
-        if db.query(MealHistory).count() == 0:
-            inserted, _ = import_frame(db, load_csv(csv_path))
-            if inserted:
-                print(f"MessWise: seeded {inserted} synthetic sample rows into the database.")
+        if db.query(MealHistory).count() != 0:
+            return
+        if not Path(csv_path).exists():
+            print(f"MessWise: source CSV not found at {csv_path}; waiting for a dashboard import.")
+            return
+        frame = load_csv(csv_path)
+        inserted, skipped = import_frame(db, frame)
+        if inserted:
+            print(f"MessWise: loaded {inserted} rows from {Path(csv_path).name} ({skipped} duplicates skipped).")
 
 
 def history_frame(db: Session, limit: int | None = None) -> pd.DataFrame:
