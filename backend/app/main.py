@@ -23,7 +23,7 @@ from backend.app.schemas import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CSV = ROOT / "data" / "raw" / "meal_history.csv"
+DEFAULT_CSV = ROOT / "data" / "raw" / "messwise_full_august_2026_menu_dataset.csv"
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 app = FastAPI(
