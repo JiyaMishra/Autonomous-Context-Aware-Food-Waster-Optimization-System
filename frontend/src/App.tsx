@@ -64,7 +64,8 @@ export default function App() {
   const [demandRate, setDemandRate] = useState("");
   const [trends, setTrends] = useState<Trend[]>([]);\n  const [dishOptions, setDishOptions] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [uploading, setUploading] = useState(false);\n  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -115,7 +116,8 @@ export default function App() {
     setUploading(true); setMessage(""); setError("");
     try {
       const form = new FormData();
-      form.append("file", file);\n      form.append("replace_existing", String(replaceExisting));
+      form.append("file", file);
+      form.append("replace_existing", String(replaceExisting));
       const response = await fetch(API_ROOT + "/api/v1/data/upload", {
         method: "POST", body: form,
       });
