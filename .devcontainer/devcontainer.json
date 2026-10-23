@@ -1,0 +1,21 @@
+{
+  "name": "MessWise development",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+  "forwardPorts": [5173, 8000],
+  "portsAttributes": {
+    "5173": {
+      "label": "MessWise dashboard",
+      "onAutoForward": "openBrowser"
+    },
+    "8000": {
+      "label": "MessWise API",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "python -m pip install --upgrade pip && pip install -e '.[dev]' && cd frontend && npm install"
+}
