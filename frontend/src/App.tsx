@@ -164,7 +164,7 @@ export default function App() {
         <a className="nav-item" href="#plan"><span>◷</span> Meal planning</a>
         <a className="nav-item" href="#history"><span>▤</span> Meal history</a>
         <a className="nav-item" href="#reviews"><span>✓</span> Plan reviews</a>
-        <div className="sidebar-bottom"><span className="status-dot" /> Menu history workspace <small>August 2026 CSV · upload source data to begin</small></div>
+        <div className="sidebar-bottom"><span className="status-dot" /> Menu history workspace <small>August 2026 menu is reused by day number for future months.</small></div>
       </aside>
 
       <main className="main-content">
@@ -223,10 +223,12 @@ export default function App() {
             <div className="panel-heading"><div><span className="eyebrow">DECISION SUPPORT</span><h2>Build a meal plan</h2><p>Use expected hostel attendance, the source unit, and recent menu context to create a reviewable proposal.</p></div><span className="step-tag">01 / PLAN</span></div>
             <form onSubmit={submitPlan}>
               <div className="form-row">
-                <label>Service date<input type="date" required value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></label>
+                <label>Service date<input type="date" required value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /><small className="field-hint">Uses the matching day number from August 2026.</small></label>
                 <label>Meal service<select value={meal} onChange={(e) => setMeal(e.target.value)}><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="snacks">Snacks</option><option value="dinner">Dinner</option></select></label>
               </div>
-              <label>Food item<input required list="messwise-dishes" value={dish} onChange={(e) => setDish(e.target.value)} placeholder="Choose a dish from your dataset" /><datalist id="messwise-dishes">{dishOptions.map((item) => <option key={item} value={item} />)}</datalist></label>
+              <label>Menu item for this date &amp; meal<select required value={dish} onChange={(e) => { const next = e.target.value; setDish(next); const row = menuItems.find((item) => item.dish === next); if (row?.attendance != null) setAttendance(String(row.attendance)); if (row?.synthetic_liking_score != null) setLikingScore(String(row.synthetic_liking_score)); if (row?.exam_intensity != null) setExamIntensity(String(row.exam_intensity)); if (row?.temperature_c != null) setTemperatureC(String(row.temperature_c)); if (row?.rainfall_mm != null) setRainfallMm(String(row.rainfall_mm)); if (row?.historical_demand_rate != null) setDemandRate(String(row.historical_demand_rate)); }} disabled={menuLoading || menuItems.length === 0}><option value="">{menuLoading ? "Loading this day’s menu…" : "Select a menu item"}</option>{menuItems.map((item) => <option key={item.dish} value={item.dish}>{item.dish}</option>)}</select><small className="field-hint">{menuItems.length ? menuItems.length + " items from " + menuItems[0].template_date + " · historical unit: " + (selectedMenuItem?.quantity_unit_hint ?? "not specified") : "Menu items appear when the selected date and meal match the source CSV."}</small></label>
+              {menuError && <div className="alert error menu-alert"><span>{menuError}</span><button type="button" onClick={() => void loadMenu()}>Retry</button></div>}
+              {selectedMenuItem && <div className="menu-history-card"><strong>Historical reference · {selectedMenuItem.template_date}</strong><span>Prepared: {selectedMenuItem.prepared_portions ?? "—"} {selectedMenuItem.quantity_unit_hint ?? ""}</span><span>Consumed: {selectedMenuItem.served_portions ?? "—"}</span><span>Leftover: {selectedMenuItem.waste_portions ?? "—"}</span><small>Historical values are reference data, not the future month’s actuals. Attendance and conditions can be edited below.</small></div>}
               <div className="form-row">
                 <label>Expected hostel attendance<input type="number" min="0" required value={attendance} onChange={(e) => setAttendance(e.target.value)} /></label>
                 <label>Units per kitchen batch<input type="number" min="1" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} /></label>
@@ -273,6 +275,16 @@ export default function App() {
         </section>
         <footer><span>MESSWISE</span> Built for practical meal decisions · Forecasts are estimates, not instructions to cook automatically.</footer>
       </main>
+      <div className="help-widget">
+        {helpOpen && <section className="help-panel" aria-label="MessWise help chatbot">
+          <header><div><strong>Ask MessWise</strong><small>Site guide · help using this dashboard</small></div><button type="button" onClick={() => setHelpOpen(false)} aria-label="Close help">×</button></header>
+          <div className="help-welcome"><strong>Hi! Need a hand?</strong><p>I can explain the menu lookup, historical data, forecasts and plan reviews.</p></div>
+          <div className="help-quick-questions">{["How does the date menu work?","How do I generate a plan?","How do I upload data?","How do I review a plan?"].map((q) => <button type="button" key={q} onClick={() => setHelpQuestion(q)}>{q}</button>)}</div>
+          {helpQuestion && <div className="help-answer"><strong>{helpQuestion}</strong><p>{helpAnswer(helpQuestion)}</p></div>}
+          <form onSubmit={(e) => { e.preventDefault(); if (helpQuestion.trim()) setHelpQuestion(helpQuestion.trim()); }}><input aria-label="Ask a question about MessWise" value={helpQuestion} onChange={(e) => setHelpQuestion(e.target.value)} placeholder="Ask how to use the site…" /><button type="submit">Ask</button></form>
+        </section>}
+        <button className="help-launcher" type="button" onClick={() => setHelpOpen((open) => !open)} aria-expanded={helpOpen}><span>✦</span> {helpOpen ? "Close help" : "Ask MessWise"} <i>●</i></button>
+      </div>
     </div>
   );
 }
