@@ -61,14 +61,19 @@ def summary(db: Session = Depends(get_db)):
             "top_waste_dishes": [], "unit_breakdown": [],
         }
     dish_metrics = dish_waste_analytics(frame)
-    if "waste_rate_pct" in frame.columns:
-        row_rates = pd.to_numeric(frame["waste_rate_pct"], errors="coerce")
-    else:
-        prepared = pd.to_numeric(frame["prepared_portions"], errors="coerce").fillna(
-            pd.to_numeric(frame["planned_portions"], errors="coerce")
-        )
-        row_rates = pd.to_numeric(frame["waste_portions"], errors="coerce").div(prepared.replace(0, float("nan"))) * 100
-    row_rates = row_rates.fillna(0)
+    source_rates = (
+        pd.to_numeric(frame["waste_rate_pct"], errors="coerce")
+        if "waste_rate_pct" in frame.columns else pd.Series(float("nan"), index=frame.index)
+    )
+    prepared = (
+        pd.to_numeric(frame["prepared_portions"], errors="coerce")
+        if "prepared_portions" in frame.columns else pd.Series(float("nan"), index=frame.index)
+    )
+    prepared = prepared.fillna(pd.to_numeric(frame["planned_portions"], errors="coerce"))
+    fallback_rates = pd.to_numeric(frame["waste_portions"], errors="coerce").div(
+        prepared.replace(0, float("nan"))
+    ) * 100
+    row_rates = source_rates.fillna(fallback_rates).fillna(0)
     unit_col = frame["quantity_unit_hint"].fillna("unspecified unit") if "quantity_unit_hint" in frame.columns else pd.Series(["unspecified unit"] * len(frame))
     unit_breakdown = []
     for unit, indices in frame.groupby(unit_col).groups.items():
