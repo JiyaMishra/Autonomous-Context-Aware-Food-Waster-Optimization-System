@@ -10,11 +10,32 @@ from backend.app.db.session import Base, SessionLocal, engine
 HISTORY_COLUMNS = [
     "date", "meal", "dish", "planned_portions", "served_portions",
     "waste_portions", "attendance", "is_weekend", "event_factor", "weather",
+    "day_of_week", "menu_version", "synthetic_liking_score", "exam_intensity",
+    "temperature_c", "rainfall_mm", "hostel_attendance_estimate",
+    "historical_demand_rate", "expected_consumers",
+    "recommended_preparation_portions", "prepared_portions", "waste_rate_pct",
+    "quantity_unit_hint",
+]
+OPTIONAL_TEXT_FIELDS = ["weather", "day_of_week", "quantity_unit_hint"]
+OPTIONAL_INT_FIELDS = [
+    "menu_version", "hostel_attendance_estimate", "expected_consumers",
+    "recommended_preparation_portions", "prepared_portions",
+]
+OPTIONAL_FLOAT_FIELDS = [
+    "synthetic_liking_score", "exam_intensity", "temperature_c", "rainfall_mm",
+    "historical_demand_rate", "waste_rate_pct",
 ]
 
 
+def _optional_value(row, field, converter):
+    value = getattr(row, field, None)
+    if value is None or pd.isna(value):
+        return None
+    return converter(value)
+
+
 def import_frame(db: Session, frame: pd.DataFrame) -> tuple[int, int]:
-    """Insert date/meal/dish keys once; do not silently overwrite operator data."""
+    """Insert each date/meal/dish key once; retain source context and units."""
     existing = {
         (row.date, row.meal.strip().lower(), row.dish.strip().lower())
         for row in db.query(MealHistory.date, MealHistory.meal, MealHistory.dish).all()
@@ -25,19 +46,24 @@ def import_frame(db: Session, frame: pd.DataFrame) -> tuple[int, int]:
         if key in existing:
             skipped += 1
             continue
-        weather = None if pd.isna(row.weather) else str(row.weather)
-        db.add(MealHistory(
-            date=row.date,
-            meal=str(row.meal).strip().lower(),
-            dish=str(row.dish).strip(),
-            planned_portions=int(row.planned_portions),
-            served_portions=int(row.served_portions),
-            waste_portions=int(row.waste_portions),
-            attendance=int(row.attendance),
-            is_weekend=bool(row.is_weekend),
-            event_factor=float(row.event_factor),
-            weather=weather,
-        ))
+        payload = {
+            "date": row.date,
+            "meal": str(row.meal).strip().lower(),
+            "dish": str(row.dish).strip(),
+            "planned_portions": int(row.planned_portions),
+            "served_portions": int(row.served_portions),
+            "waste_portions": int(row.waste_portions),
+            "attendance": int(row.attendance),
+            "is_weekend": bool(row.is_weekend),
+            "event_factor": float(row.event_factor),
+        }
+        for field in OPTIONAL_TEXT_FIELDS:
+            payload[field] = _optional_value(row, field, str)
+        for field in OPTIONAL_INT_FIELDS:
+            payload[field] = _optional_value(row, field, int)
+        for field in OPTIONAL_FLOAT_FIELDS:
+            payload[field] = _optional_value(row, field, float)
+        db.add(MealHistory(**payload))
         existing.add(key)
         inserted += 1
     db.commit()
@@ -45,8 +71,13 @@ def import_frame(db: Session, frame: pd.DataFrame) -> tuple[int, int]:
 
 
 def seed_database(csv_path: str | Path) -> None:
-    """Seed an empty database from the bundled sample, without duplicating rows."""
+    """Seed the small synthetic fixture only when explicitly enabled by config."""
     Base.metadata.create_all(bind=engine)
+    # Real operators should upload their approved menu-history dataset. This
+    # prevents the app from mixing demo records with the user's source dataset.
+    import os
+    if os.getenv("MESSWISE_SEED_DEMO_DATA", "false").strip().lower() not in {"1", "true", "yes"}:
+        return
     with SessionLocal() as db:
         if db.query(MealHistory).count() == 0:
             inserted, _ = import_frame(db, load_csv(csv_path))
@@ -78,6 +109,19 @@ def history_frame(db: Session, limit: int | None = None) -> pd.DataFrame:
         "is_weekend": row.is_weekend,
         "event_factor": row.event_factor,
         "weather": row.weather,
+        "day_of_week": row.day_of_week,
+        "menu_version": row.menu_version,
+        "synthetic_liking_score": row.synthetic_liking_score,
+        "exam_intensity": row.exam_intensity,
+        "temperature_c": row.temperature_c,
+        "rainfall_mm": row.rainfall_mm,
+        "hostel_attendance_estimate": row.hostel_attendance_estimate,
+        "historical_demand_rate": row.historical_demand_rate,
+        "expected_consumers": row.expected_consumers,
+        "recommended_preparation_portions": row.recommended_preparation_portions,
+        "prepared_portions": row.prepared_portions,
+        "waste_rate_pct": row.waste_rate_pct,
+        "quantity_unit_hint": row.quantity_unit_hint,
     } for row in rows]
     if not records:
         return pd.DataFrame(columns=HISTORY_COLUMNS)
