@@ -51,6 +51,7 @@ def normalize_and_validate(frame: pd.DataFrame) -> pd.DataFrame:
             "hostel_attendance_estimate": "attendance",
         })
         df["recommended_preparation_portions"] = df["planned_portions"]
+        df["hostel_attendance_estimate"] = df["attendance"]
     missing = sorted(REQUIRED_COLUMNS - set(df.columns))
     if missing:
         raise DataValidationError(
