@@ -4,8 +4,10 @@ const API = import.meta.env.VITE_API_BASE ?? "/api/v1";
 const API_ROOT = API.endsWith("/api/v1") ? API.slice(0, -7) : "";
 
 type Summary = {
-  records: number; served_portions: number; waste_portions: number; waste_rate: number;
-  top_waste_dishes: { dish: string; waste_portions: number }[];
+  records: number; unique_dishes: number; service_days: number;
+  waste_rate: number; average_waste_rate_pct: number;
+  top_waste_dishes: { dish: string; records: number; average_waste_rate_pct: number; total_waste_in_item_unit: number; quantity_unit_hint: string }[];
+  unit_breakdown: { unit: string; records: number; average_waste_rate_pct: number }[];
 };
 type Plan = {
   id: number; date: string; meal: string; dish: string; forecast_portions: number;
@@ -14,8 +16,11 @@ type Plan = {
 };
 type HistoryRow = {
   date: string; meal: string; dish: string; served_portions: number; waste_portions: number;
+  planned_portions?: number; prepared_portions?: number | null; waste_rate_pct?: number | null;
+  quantity_unit_hint?: string | null; synthetic_liking_score?: number | null;
+  exam_intensity?: number | null; expected_consumers?: number | null;
 };
-type Trend = { date: string; served_portions: number; waste_portions: number; waste_rate: number };
+type Trend = { date: string; records: number; average_waste_rate_pct: number; waste_rate: number };
 type Evaluation = {
   observations: number;
   metrics: { mae: number; rmse: number; wape: number } | null;
@@ -48,22 +53,24 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [targetDate, setTargetDate] = useState(todayLocal());
   const [meal, setMeal] = useState("lunch");
-  const [dish, setDish] = useState("dal tadka");
+  const [dish, setDish] = useState("Aloo Paratha");
   const [attendance, setAttendance] = useState("170");
   const [batchSize, setBatchSize] = useState("25");
   const [context, setContext] = useState("");
-  const [trends, setTrends] = useState<Trend[]>([]);
+  const [trends, setTrends] = useState<Trend[]>([]);\n  const [dishOptions, setDishOptions] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [s, h, p, t, e] = await Promise.all([
+      const [s, h, p, t, e, d] = await Promise.all([
         request<Summary>("/summary"), request<HistoryRow[]>("/history?limit=12"),
         request<Plan[]>("/plans?limit=8"), request<Trend[]>("/analytics/trends"),
-        request<Evaluation>("/evaluation"),
+        request<Evaluation>("/evaluation"), request<Array<{ dish: string }>>("/analytics/dishes"),
       ]);
-      setSummary(s); setHistory(h); setPlans(p); setTrends(t); setEvaluation(e); setError("");
+      setSummary(s); setHistory(h); setPlans(p); setTrends(t); setEvaluation(e);
+      setDishOptions(Array.from(new Set(d.map((item) => item.dish))).sort((x, y) => x.localeCompare(y)));
+      setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to connect to the API");
     }
@@ -129,7 +136,7 @@ export default function App() {
     }
   }
 
-  const wastePct = summary ? (summary.waste_rate * 100).toFixed(1) : "—";
+  const wastePct = summary ? summary.average_waste_rate_pct.toFixed(1) : "—";
 
   return (
     <div className="app-shell">
@@ -140,7 +147,7 @@ export default function App() {
         <a className="nav-item" href="#plan"><span>◷</span> Meal planning</a>
         <a className="nav-item" href="#history"><span>▤</span> Meal history</a>
         <a className="nav-item" href="#reviews"><span>✓</span> Plan reviews</a>
-        <div className="sidebar-bottom"><span className="status-dot" /> Demo data connected <small>Synthetic sample · not live mess data</small></div>
+        <div className="sidebar-bottom"><span className="status-dot" /> Menu history workspace <small>August 2026 CSV · upload source data to begin</small></div>
       </aside>
 
       <main className="main-content">
@@ -150,20 +157,20 @@ export default function App() {
         {message && <div className="alert success"><span>{message}</span><button onClick={() => setMessage("")}>Dismiss</button></div>}
 
         <section id="overview" className="metrics-grid">
-          <article className="metric-card"><div className="metric-top"><span>Meals recorded</span><span className="metric-icon violet">▤</span></div><strong>{summary?.records ?? "—"}</strong><small>rows in sample history</small></article>
-          <article className="metric-card"><div className="metric-top"><span>Portions served</span><span className="metric-icon green">◉</span></div><strong>{summary ? summary.served_portions.toLocaleString("en-IN") : "—"}</strong><small>across recorded meals</small></article>
-          <article className="metric-card"><div className="metric-top"><span>Waste portions</span><span className="metric-icon orange">↘</span></div><strong>{summary ? summary.waste_portions.toLocaleString("en-IN") : "—"}</strong><small>reported leftover portions</small></article>
-          <article className="metric-card"><div className="metric-top"><span>Waste rate</span><span className="metric-icon blue">%</span></div><strong>{wastePct}{summary ? "%" : ""}</strong><small>leftover / served</small></article>
+          <article className="metric-card"><div className="metric-top"><span>Menu observations</span><span className="metric-icon violet">▤</span></div><strong>{summary?.records ?? "—"}</strong><small>item × meal × date records</small></article>
+          <article className="metric-card"><div className="metric-top"><span>Food items</span><span className="metric-icon green">◉</span></div><strong>{summary?.unique_dishes ?? "—"}</strong><small>distinct menu items</small></article>
+          <article className="metric-card"><div className="metric-top"><span>Service days</span><span className="metric-icon orange">▦</span></div><strong>{summary?.service_days ?? "—"}</strong><small>days represented in the dataset</small></article>
+          <article className="metric-card"><div className="metric-top"><span>Average item waste</span><span className="metric-icon blue">%</span></div><strong>{wastePct}{summary ? "%" : ""}</strong><small>mean of source row waste rates</small></article>
         </section>
 
 
         <section className="content-grid phase-tools">
           <article className="panel">
-            <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Upload a CSV using the documented dataset columns. Existing records are never silently overwritten.</p></div></div>
+            <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Import the August 2026 menu dataset directly. MessWise preserves demand context and each item’s unit hint.</p></div></div>
             <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
               <label>Meal history CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
               <div className="tool-actions"><button className="primary-button" type="submit" disabled={uploading}>{uploading ? "Validating and importing…" : "Validate & import CSV"}</button><button className="secondary-button" type="button" onClick={exportCsv}>Export all history ↓</button><a className="template-link" href="/meal_history_template.csv" download>Download CSV template ↓</a></div>
-              <p className="helper">Maximum 5 MB. Required columns: date, meal, dish, planned_portions, served_portions, waste_portions, attendance. Invalid rows are rejected with an explanation.</p>
+              <p className="helper">Maximum 5 MB. Accepts the original columns: food_item, prepared_portions, consumed_portions, leftover_portions, hostel_attendance_estimate, and the weather/exam/menu context fields. Existing date + meal + item rows are skipped, not overwritten.</p>
             </form>
           </article>
           <article className="panel">
@@ -178,11 +185,11 @@ export default function App() {
         </section>
 
         <section className="panel table-panel">
-          <div className="panel-heading table-heading"><div><span className="eyebrow">PHASE 12 · WASTE ANALYTICS</span><h2>Daily waste trend</h2><p>Daily served portions and reported leftovers.</p></div><span className="quiet-tag">{trends.length} days</span></div>
+          <div className="panel-heading table-heading"><div><span className="eyebrow">PHASE 12 · WASTE ANALYTICS</span><h2>Daily waste-rate trend</h2><p>Average reported waste rate across menu items each day; no mixed-unit quantities are added together.</p></div><span className="quiet-tag">{trends.length} days</span></div>
           {trends.length ? <div className="trend-list">{trends.slice(-14).map((trend) => {
-            const maxWaste = Math.max(...trends.slice(-14).map((item) => item.waste_portions), 1);
-            return <div className="trend-row" key={trend.date}><span>{trend.date}</span><div className="trend-bar"><div style={{ width: (trend.waste_portions / maxWaste * 100) + "%" }} /></div><strong>{trend.waste_portions}</strong><small>{(trend.waste_rate * 100).toFixed(1)}%</small></div>;
-          })}</div> : <p className="empty-state">No trend data is available yet.</p>}
+            const maxRate = Math.max(...trends.slice(-14).map((item) => item.average_waste_rate_pct), 1);
+            return <div className="trend-row" key={trend.date}><span>{trend.date}</span><div className="trend-bar"><div style={{ width: (trend.average_waste_rate_pct / maxRate * 100) + "%" }} /></div><strong>{trend.average_waste_rate_pct.toFixed(1)}%</strong><small>{trend.records} items</small></div>;
+          })}</div> : <p className="empty-state">Upload the August menu CSV to view daily trends.</p>}
         </section>
 
         <section className="content-grid">
@@ -193,7 +200,7 @@ export default function App() {
                 <label>Service date<input type="date" required value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></label>
                 <label>Meal service<select value={meal} onChange={(e) => setMeal(e.target.value)}><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="snacks">Snacks</option><option value="dinner">Dinner</option></select></label>
               </div>
-              <label>Dish name<input required value={dish} onChange={(e) => setDish(e.target.value)} placeholder="e.g. dal tadka" /></label>
+              <label>Food item<input required list="messwise-dishes" value={dish} onChange={(e) => setDish(e.target.value)} placeholder="Choose a dish from your dataset" /><datalist id="messwise-dishes">{dishOptions.map((item) => <option key={item} value={item} />)}</datalist></label>
               <div className="form-row">
                 <label>Expected attendance<input type="number" min="0" required value={attendance} onChange={(e) => setAttendance(e.target.value)} /></label>
                 <label>Portions per batch<input type="number" min="1" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} /></label>
@@ -207,17 +214,17 @@ export default function App() {
           <article className="panel waste-panel">
             <div className="panel-heading"><div><span className="eyebrow">WHERE TO LOOK</span><h2>Top waste dishes</h2><p>Start improvement with the largest recorded leftovers.</p></div></div>
             {summary?.top_waste_dishes.length ? <div className="waste-list">{summary.top_waste_dishes.map((item, i) => {
-              const max = Math.max(...summary.top_waste_dishes.map((x) => x.waste_portions), 1);
-              return <div className="waste-item" key={item.dish}><div className="waste-row"><span><b className="rank">{String(i + 1).padStart(2, "0")}</b>{item.dish}</span><strong>{item.waste_portions} <small>portions</small></strong></div><div className="bar-track"><div className="bar-fill" style={{ width: (item.waste_portions / max * 100) + "%" }} /></div></div>;
-            })}</div> : <div className="empty-state">Loading waste insights…</div>}
+              const max = Math.max(...summary.top_waste_dishes.map((x) => x.average_waste_rate_pct), 1);
+              return <div className="waste-item" key={item.dish + item.quantity_unit_hint}><div className="waste-row"><span><b className="rank">{String(i + 1).padStart(2, "0")}</b>{item.dish}</span><strong>{item.average_waste_rate_pct.toFixed(1)}% <small>avg.</small></strong></div><div className="bar-track"><div className="bar-fill" style={{ width: (item.average_waste_rate_pct / max * 100) + "%" }} /></div><small className="unit-note">{item.quantity_unit_hint} · {item.records} observations</small></div>;
+            })}</div> : <div className="empty-state">Upload the August menu CSV to see food items with the highest average waste rate.</div>}
             <div className="panel-note"><span>✳</span><p>Sample observations are synthetic. Replace them with approved mess records before making operational decisions.</p></div>
           </article>
         </section>
 
         <section className="panel table-panel" id="history">
-          <div className="panel-heading table-heading"><div><span className="eyebrow">RECENT OBSERVATIONS</span><h2>Meal history</h2></div><span className="quiet-tag">Last {history.length} rows</span></div>
-          <div className="table-wrap"><table><thead><tr><th>Service date</th><th>Meal</th><th>Dish</th><th>Served</th><th>Waste</th><th>Waste rate</th></tr></thead><tbody>
-            {history.map((row, i) => <tr key={row.date + row.meal + row.dish + i}><td>{row.date}</td><td><span className="meal-pill">{row.meal}</span></td><td className="dish-cell">{row.dish}</td><td>{row.served_portions}</td><td>{row.waste_portions}</td><td>{row.served_portions ? (row.waste_portions / row.served_portions * 100).toFixed(1) : "0.0"}%</td></tr>)}
+          <div className="panel-heading table-heading"><div><span className="eyebrow">RECENT OBSERVATIONS</span><h2>Meal history</h2><p>Consumed and leftover quantities remain in each item's source unit.</p></div><span className="quiet-tag">Last {history.length} rows</span></div>
+          <div className="table-wrap"><table><thead><tr><th>Service date</th><th>Meal</th><th>Food item</th><th>Prepared</th><th>Consumed</th><th>Leftover</th><th>Waste rate</th><th>Unit</th></tr></thead><tbody>
+            {history.map((row, i) => <tr key={row.date + row.meal + row.dish + i}><td>{row.date}</td><td><span className="meal-pill">{row.meal}</span></td><td className="dish-cell">{row.dish}</td><td>{row.prepared_portions ?? row.planned_portions}</td><td>{row.served_portions}</td><td>{row.waste_portions}</td><td>{typeof row.waste_rate_pct === "number" ? row.waste_rate_pct.toFixed(1) : (row.prepared_portions || row.planned_portions) ? (row.waste_portions / (row.prepared_portions ?? row.planned_portions) * 100).toFixed(1) : "0.0"}%</td><td>{row.quantity_unit_hint ?? "servings"}</td></tr>)}
           </tbody></table></div>
         </section>
 
