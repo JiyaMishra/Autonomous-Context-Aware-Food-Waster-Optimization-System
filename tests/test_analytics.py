@@ -17,7 +17,8 @@ def test_waste_trends_returns_daily_totals_and_rates():
     rows = waste_trends(sample_history())
     assert len(rows) == 8
     assert rows[0]["date"] == "2026-01-01"
-    assert rows[0]["served_portions"] == 19
+    assert rows[0]["records"] == 1
+    assert rows[0]["average_waste_rate_pct"] > 0
     assert rows[0]["waste_rate"] > 0
 
 
@@ -25,7 +26,7 @@ def test_dish_analytics_calculates_rate():
     rows = dish_waste_analytics(sample_history())
     assert rows[0]["dish"] == "dal"
     assert rows[0]["records"] == 8
-    assert 0 <= rows[0]["waste_rate"] <= 1
+    assert 0 <= rows[0]["average_waste_rate_pct"] <= 100
 
 
 def test_backtest_reports_metrics_with_enough_history():
