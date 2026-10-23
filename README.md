@@ -126,7 +126,8 @@ CSV upload accepts files up to 5 MB. It supports both the generic contract and t
 - `GET /api/v1/summary` — record count, unique items, service days, average row-level waste rate, unit-grouped waste insights
 - `GET /api/v1/history?limit=100` — recent history
 - `GET /api/v1/analytics/trends` — daily served/waste totals and waste rate
-- `GET /api/v1/analytics/dishes` — per-dish waste rate and totals
+- `GET /api/v1/analytics/dishes` — per-dish waste rate grouped by unit hint
+- `GET /api/v1/analytics/meals` — average item-level waste rate by meal service
 - `GET /api/v1/evaluation` — chronological backtest and MAE/RMSE/WAPE
 - `POST /api/v1/data/upload` — multipart CSV upload and validation
 - `GET /api/v1/data/export` — download stored history as CSV
