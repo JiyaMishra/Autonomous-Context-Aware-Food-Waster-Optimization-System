@@ -62,7 +62,8 @@ export default function App() {
   const [temperatureC, setTemperatureC] = useState("");
   const [rainfallMm, setRainfallMm] = useState("");
   const [demandRate, setDemandRate] = useState("");
-  const [trends, setTrends] = useState<Trend[]>([]);\n  const [dishOptions, setDishOptions] = useState<string[]>([]);
+  const [trends, setTrends] = useState<Trend[]>([]);
+  const [dishOptions, setDishOptions] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replaceExisting, setReplaceExisting] = useState(false);
