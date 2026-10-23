@@ -7,13 +7,36 @@ A clean-room implementation for forecasting meal demand and producing practical 
 - **Frontend:** React + TypeScript + Vite
 - **API:** FastAPI + Pydantic
 - **Database:** PostgreSQL via SQLAlchemy 2 and Alembic (SQLite is the no-Docker local default)
-- **Data pipeline:** CSV validation, normalization, profiling, and idempotent database import
-- **Analytics:** daily waste trends, dish-level waste rates, summary metrics, CSV export
-- **Forecasting:** transparent baseline estimates, MAE/RMSE/WAPE helpers, and chronological backtesting
+- **Data pipeline:** accepts the August 2026 menu CSV directly; preserves prepared/consumed/leftover quantities, context fields, and item-specific unit hints
+- **Analytics:** daily average waste-rate trends, item-level waste rates, meal comparisons, and CSV export; never sums mixed physical units into a misleading total
+- **Forecasting:** attendance-scaled historical baseline blended with up to eight context-similar earlier records when liking, exam, temperature, rainfall, or demand-rate context is provided; MAE/RMSE/WAPE and chronological backtesting
 - **Optimization:** deterministic batch sizing with explicit safety-buffer assumptions
 - **Decision engine:** context notes, explanations, audit trail, and required human review
 - **CI:** GitHub Actions runs backend tests and a frontend production build on pushes and PRs
 - **Deployment:** Docker Compose for database, API, and dashboard
+
+## Supplied dataset: August 2026
+
+The supplied messwise_full_august_2026_menu_dataset.csv contains **973 item-level records** from **1–31 August 2026**, covering **145 distinct food items** across Breakfast (262 records), Lunch (292), Snacks (132), and Dinner (287). It includes source fields for liking score, exam intensity, temperature, rainfall, hostel attendance, historical demand rate, expected consumers, recommended preparation, actual prepared, consumed, leftover, waste-rate percentage, and a quantity-unit hint.
+
+The adapter maps the original source fields as follows without discarding the source features:
+
+- food_item → dish; recommended_preparation_portions → planned_portions
+- consumed_portions → served_portions; leftover_portions → waste_portions
+- hostel_attendance_estimate → attendance; the original attendance is also preserved separately
+- prepared_portions, expected_consumers, waste_rate_pct, quantity_unit_hint, and contextual features remain available in history/export.
+
+**Important unit rule:** the dataset mixes litres/kg, pieces, servings, and combined hints. MessWise therefore displays average row-level waste rates and groups dish metrics by unit hint; it does not present the sum of all leftovers as one physically meaningful total. The arithmetic mean of the supplied row-level waste_rate_pct values is approximately **6.07%**; this is an unweighted average across records, not a measured campus-wide mass balance. The source includes a field explicitly named synthetic_liking_score; treat the dataset as decision-support/demo input until its provenance and measurements are validated.
+
+## Import the supplied CSV
+
+1. Start the backend and frontend using the instructions below.
+2. Open the dashboard and find **Import August 2026 menu CSV**.
+3. Select the provided messwise_full_august_2026_menu_dataset.csv file.
+4. If the database contains demo rows or another dataset, tick **Replace existing history**. This clears existing meal-history rows only after the uploaded CSV passes validation. Leave it unticked to append only new date/meal/item keys.
+5. Click **Validate & import CSV**. Expect 973 rows to be imported into an empty history table. Then confirm the 145 item count, 31 service days, waste trends, and food-item options in meal planning.
+
+A clean install no longer auto-seeds synthetic rows by default. To intentionally seed the small development fixture, set MESSWISE_SEED_DEMO_DATA=true before starting the API.
 
 ## Implementation phases
 
@@ -95,12 +118,12 @@ python -m backend.app.data.cli profile data/raw/meal_history.csv
 python -m backend.app.data.cli import data/raw/meal_history.csv
 ```
 
-CSV upload accepts files up to 5 MB. Required columns: `date`, `meal`, `dish`, `planned_portions`, `served_portions`, `waste_portions`, `attendance`. Optional columns: `is_weekend`, `event_factor`, `weather`. Existing (date, meal, dish) keys are skipped and never overwritten silently. The dashboard can export all stored history as CSV.
+CSV upload accepts files up to 5 MB. It supports both the generic contract and the original August menu dataset columns. Existing (date, meal, dish) keys are skipped unless the operator explicitly chooses replace-history. The dashboard can export all stored history and context fields as CSV.
 
 ## API endpoints
 
 - `GET /health` — liveness check
-- `GET /api/v1/summary` — total records, served/waste portions, waste rate and top waste dishes
+- `GET /api/v1/summary` — record count, unique items, service days, average row-level waste rate, unit-grouped waste insights
 - `GET /api/v1/history?limit=100` — recent history
 - `GET /api/v1/analytics/trends` — daily served/waste totals and waste rate
 - `GET /api/v1/analytics/dishes` — per-dish waste rate and totals
@@ -147,7 +170,7 @@ One row per date, meal, and dish:
 
 ## Model limitations and responsible use
 
-Forecasting uses a recent median scaled by attendance where possible, with an explicit 75%-of-attendance fallback if no suitable earlier history exists. The evaluation endpoint performs a chronological historical backtest; it does not prove future performance. Confidence labels are heuristic, and a simple baseline may underperform on holidays, special events, menu changes, or sudden attendance shifts.
+Forecasting uses a recent median scaled by attendance, with an explicit 75%-of-attendance fallback if no suitable earlier history exists. When context values are supplied, the baseline is blended with earlier records whose liking score, exam intensity, temperature, rainfall, and historical demand rate are most similar. This is a transparent heuristic, not a trained causal model; its context similarity weights and 70/30 blend require validation on real data. The evaluation endpoint performs a chronological historical backtest; it does not prove future performance. Confidence labels are heuristic, and the baseline may underperform on holidays, special events, menu changes, or sudden attendance shifts.
 
 The optimizer rounds forecasts to complete batches after a configurable buffer. This can create a surplus for large batch sizes, so use realistic vessel sizes and review every proposal. Context notes are shown to operators but do not silently change the numeric forecast.
 
