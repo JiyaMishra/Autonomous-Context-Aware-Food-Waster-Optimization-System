@@ -1,26 +1,10 @@
 from datetime import date
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
     status: str
     service: str
-
-
-class MealRecord(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int | None = None
-    date: date
-    meal: str = Field(min_length=1, max_length=32)
-    dish: str = Field(min_length=1, max_length=120)
-    planned_portions: int = Field(ge=0)
-    served_portions: int = Field(ge=0)
-    waste_portions: int = Field(ge=0)
-    attendance: int = Field(ge=0)
-    is_weekend: bool | None = None
-    event_factor: float = Field(default=1.0, gt=0)
-    weather: str | None = None
 
 
 class ForecastRequest(BaseModel):
@@ -48,6 +32,7 @@ class PlanRequest(ForecastRequest):
 
 
 class PlanResponse(BaseModel):
+    id: int | None = None
     date: date
     meal: str
     dish: str

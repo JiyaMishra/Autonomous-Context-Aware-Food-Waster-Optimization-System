@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: messwise
+      POSTGRES_USER: messwise
+      POSTGRES_PASSWORD: local_dev_only_change_me
+    ports:
+      - "5433:5432"
+    volumes:
+      - messwise_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messwise -d messwise"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://messwise:local_dev_only_change_me@db:5432/messwise
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: /api/v1
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  messwise_db:
