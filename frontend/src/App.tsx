@@ -52,9 +52,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [targetDate, setTargetDate] = useState(todayLocal());
-  const [meal, setMeal] = useState("lunch");
+  const [meal, setMeal] = useState("breakfast");
   const [dish, setDish] = useState("Aloo Paratha");
-  const [attendance, setAttendance] = useState("170");
+  const [attendance, setAttendance] = useState("500");
   const [batchSize, setBatchSize] = useState("25");
   const [context, setContext] = useState("");
   const [likingScore, setLikingScore] = useState("");
@@ -208,7 +208,7 @@ export default function App() {
 
         <section className="content-grid">
           <article className="panel planner" id="plan">
-            <div className="panel-heading"><div><span className="eyebrow">DECISION SUPPORT</span><h2>Build a meal plan</h2><p>Use attendance and kitchen batch size to create a reviewable proposal.</p></div><span className="step-tag">01 / PLAN</span></div>
+            <div className="panel-heading"><div><span className="eyebrow">DECISION SUPPORT</span><h2>Build a meal plan</h2><p>Use expected hostel attendance, the source unit, and recent menu context to create a reviewable proposal.</p></div><span className="step-tag">01 / PLAN</span></div>
             <form onSubmit={submitPlan}>
               <div className="form-row">
                 <label>Service date<input type="date" required value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></label>
@@ -216,8 +216,8 @@ export default function App() {
               </div>
               <label>Food item<input required list="messwise-dishes" value={dish} onChange={(e) => setDish(e.target.value)} placeholder="Choose a dish from your dataset" /><datalist id="messwise-dishes">{dishOptions.map((item) => <option key={item} value={item} />)}</datalist></label>
               <div className="form-row">
-                <label>Expected attendance<input type="number" min="0" required value={attendance} onChange={(e) => setAttendance(e.target.value)} /></label>
-                <label>Portions per batch<input type="number" min="1" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} /></label>
+                <label>Expected hostel attendance<input type="number" min="0" required value={attendance} onChange={(e) => setAttendance(e.target.value)} /></label>
+                <label>Units per kitchen batch<input type="number" min="1" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} /></label>
               </div>
               <div className="context-section">
                 <span className="eyebrow">DATASET CONTEXT · OPTIONAL</span>
@@ -239,7 +239,7 @@ export default function App() {
           </article>
 
           <article className="panel waste-panel">
-            <div className="panel-heading"><div><span className="eyebrow">WHERE TO LOOK</span><h2>Top waste dishes</h2><p>Start improvement with the largest recorded leftovers.</p></div></div>
+            <div className="panel-heading"><div><span className="eyebrow">WHERE TO LOOK</span><h2>Top waste dishes</h2><p>Prioritize items with the highest average source waste rate, grouped by unit.</p></div></div>
             {summary?.top_waste_dishes.length ? <div className="waste-list">{summary.top_waste_dishes.map((item, i) => {
               const max = Math.max(...summary.top_waste_dishes.map((x) => x.average_waste_rate_pct), 1);
               return <div className="waste-item" key={item.dish + item.quantity_unit_hint}><div className="waste-row"><span><b className="rank">{String(i + 1).padStart(2, "0")}</b>{item.dish}</span><strong>{item.average_waste_rate_pct.toFixed(1)}% <small>avg.</small></strong></div><div className="bar-track"><div className="bar-fill" style={{ width: (item.average_waste_rate_pct / max * 100) + "%" }} /></div><small className="unit-note">{item.quantity_unit_hint} · {item.records} observations</small></div>;
