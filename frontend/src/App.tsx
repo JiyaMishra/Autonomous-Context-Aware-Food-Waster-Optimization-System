@@ -183,7 +183,7 @@ export default function App() {
 
         <section className="content-grid phase-tools">
           <article className="panel">
-            <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Import the August 2026 menu dataset directly. MessWise preserves demand context and each item’s unit hint.</p></div></div>
+            <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import August 2026 menu CSV</h2><p>Import the August 2026 menu dataset directly. MessWise preserves demand context and each item’s unit hint.</p></div></div>
             <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
               <label>August 2026 menu CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
               <label className="replace-toggle"><input type="checkbox" checked={replaceExisting} onChange={(event) => setReplaceExisting(event.target.checked)} /> Replace existing history (use this if the database contains demo rows or a different dataset)</label>
