@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
-from backend.app.data.pipeline import load_csv
+from backend.app.data.repository import history_frame, seed_database
 from backend.app.db import models  # noqa: F401
 from backend.app.db.models import PlanAudit
 from backend.app.db.session import Base, engine, get_db
@@ -36,6 +37,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    seed_database(DEFAULT_CSV)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -44,35 +46,39 @@ def health():
 
 
 @app.get(f"{settings.api_v1_prefix}/summary")
-def summary():
-    frame = load_csv(DEFAULT_CSV)
-    served = int(frame["served_portions"].sum())
-    waste = int(frame["waste_portions"].sum())
-    dish_waste = (
-        frame.groupby("dish", as_index=False)["waste_portions"].sum()
-        .sort_values("waste_portions", ascending=False).head(5)
-    )
+def summary(db: Session = Depends(get_db)):
+    frame = history_frame(db)
+    served = int(frame["served_portions"].sum()) if not frame.empty else 0
+    waste = int(frame["waste_portions"].sum()) if not frame.empty else 0
+    if frame.empty:
+        top_dishes = []
+    else:
+        top_dishes = (
+            frame.groupby("dish", as_index=False)["waste_portions"].sum()
+            .sort_values("waste_portions", ascending=False).head(5)
+            .to_dict(orient="records")
+        )
     return {
         "records": int(len(frame)),
         "served_portions": served,
         "waste_portions": waste,
         "waste_rate": round(waste / served, 4) if served else 0,
-        "top_waste_dishes": dish_waste.to_dict(orient="records"),
+        "top_waste_dishes": top_dishes,
     }
 
 
 @app.get(f"{settings.api_v1_prefix}/history")
-def history(limit: int = 100):
+def history(limit: int = 100, db: Session = Depends(get_db)):
     if not 1 <= limit <= 1000:
         raise HTTPException(400, "limit must be between 1 and 1000")
-    frame = load_csv(DEFAULT_CSV).tail(limit)
+    frame = history_frame(db, limit=limit)
     frame = frame.astype(object).where(frame.notna(), None)
     return frame.to_dict(orient="records")
 
 
 @app.post(f"{settings.api_v1_prefix}/forecast", response_model=ForecastResponse)
-def forecast(request: ForecastRequest):
-    frame = load_csv(DEFAULT_CSV)
+def forecast(request: ForecastRequest, db: Session = Depends(get_db)):
+    frame = history_frame(db)
     result = forecast_demand(
         frame, request.date, request.meal, request.dish,
         request.attendance, request.event_factor,
@@ -83,7 +89,7 @@ def forecast(request: ForecastRequest):
 @app.post(f"{settings.api_v1_prefix}/plans", response_model=PlanResponse)
 def create_plan(request: PlanRequest, db: Session = Depends(get_db)):
     plan = propose_plan(
-        str(DEFAULT_CSV), request.date, request.meal, request.dish,
+        history_frame(db), request.date, request.meal, request.dish,
         request.attendance, request.event_factor, request.extra_context,
         request.batch_size, request.minimum_buffer_pct,
     )

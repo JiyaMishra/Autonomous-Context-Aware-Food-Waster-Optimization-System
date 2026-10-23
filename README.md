@@ -1,37 +1,37 @@
 # MessWise — Autonomous Context-Aware Food Waste Optimization
 
-A clean-room implementation for forecasting meal demand and producing practical kitchen preparation plans. This repository was built independently; no code or assets are copied from previous projects.
+A clean-room implementation for forecasting meal demand and producing practical kitchen preparation plans. This repository is independent; it does not reuse code or assets from earlier projects.
 
 ## Architecture
 
 - **Frontend:** React + TypeScript + Vite
 - **API:** FastAPI + Pydantic
-- **Database:** PostgreSQL via SQLAlchemy 2 and Alembic migrations (SQLite is the local no-Docker default)
+- **Database:** PostgreSQL via SQLAlchemy 2 and Alembic (SQLite is the no-Docker local default)
 - **Data pipeline:** CSV validation, normalization, profiling, and idempotent database import
-- **Forecasting:** transparent baseline forecasts and MAE/RMSE/WAPE metric helpers
-- **Optimization:** deterministic, constrained batch sizing with explicit buffer assumptions
-- **Decision engine:** context notes, explanations, and human review status
-- **Testing:** pytest backend checks and TypeScript/Vite production build
-- **Deployment:** Docker Compose for PostgreSQL, API, and web interface
+- **Forecasting:** transparent baseline estimates with MAE/RMSE/WAPE evaluation helpers
+- **Optimization:** deterministic batch sizing with explicit safety-buffer assumptions
+- **Decision engine:** context notes, explanations, and required human review
+- **CI:** GitHub Actions runs backend tests and a frontend production build on pushes and PRs
+- **Deployment:** Docker Compose for database, API, and dashboard
 
-## Phase map (1–10)
+## Phases 1–10
 
-1. Requirements, architecture, repository foundation
-2. CSV data contract, synthetic starter data, validation/import pipeline
-3. Database models, Alembic migration, and session/repository foundations
-4. Exploratory data profiling and waste summaries
-5. Demand forecasting baseline and metric evaluation helpers
-6. Portion and full-batch optimizer
-7. Context-aware, explainable proposal with mandatory staff review
+1. Requirements and architecture foundation
+2. CSV contract, synthetic sample, validation and import pipeline
+3. Database models, schema migration and persistence layer
+4. Data profiling and waste analytics
+5. Forecasting baseline and metric helpers
+6. Portion and full-batch optimization
+7. Context-aware explainable decisions and staff approval
 8. Versioned FastAPI endpoints
-9. Operator-focused React dashboard
-10. Integrated local/Docker run paths, API checks, and testing setup
+9. Responsive operator dashboard
+10. Integration, CI, Docker path and tests
 
-## Local quick start (Mac/Linux)
+## Run locally (Mac/Linux)
 
-Prerequisites: Python 3.11+, Node.js 20+, npm. Docker Desktop is optional for the local SQLite setup.
+Requirements: Python 3.11+, Node.js 20+, npm. Docker Desktop is optional.
 
-**1. Start the API (Terminal 1, from the repository root):**
+**Terminal 1 — API** (run from repository root):
 
 ```bash
 python3 -m venv .venv
@@ -42,9 +42,9 @@ cp .env.example .env
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
-Open http://localhost:8000/docs to inspect the API. Health check: http://localhost:8000/health.
+The API seeds the database on first start from the included sample CSV only when the meal-history table is empty. From then on, history, summary, forecasts, and plans use persisted database data.
 
-**2. Start the dashboard (Terminal 2, from the repository root):**
+**Terminal 2 — dashboard** (from repository root):
 
 ```bash
 cd frontend
@@ -53,9 +53,11 @@ cp .env.example .env
 npm run dev
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173. API docs: http://localhost:8000/docs. Health: http://localhost:8000/health.
 
-**3. Validate and profile the bundled CSV (from repository root with the venv active):**
+## CSV workflow
+
+Activate the Python environment at the repository root first:
 
 ```bash
 python -m backend.app.data.cli validate data/raw/meal_history.csv
@@ -63,50 +65,41 @@ python -m backend.app.data.cli profile data/raw/meal_history.csv
 python -m backend.app.data.cli import data/raw/meal_history.csv
 ```
 
-The import command inserts new date/meal/dish keys and skips already imported keys. It does not overwrite existing rows.
+The import command inserts new (date, meal, dish) keys and skips existing keys. It intentionally does not overwrite history silently. The API reads the database after startup seeding; import additional approved CSV rows before using them in a forecast.
 
-**4. Run tests and build checks:**
+## Checks
 
 ```bash
 pytest
 cd frontend && npm run build
 ```
 
-**5. Optional Docker setup:**
+## Optional Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-Dashboard: http://localhost:8080; API docs: http://localhost:8000/docs; PostgreSQL is published on localhost port 5433. The example database password is for local development only.
+Dashboard: http://localhost:8080; API docs: http://localhost:8000/docs; PostgreSQL is exposed on localhost port 5433. The sample password is only for local development.
 
-## CSV data contract
+## Dataset contract
 
 One row per date, meal, and dish:
+- `date`: YYYY-MM-DD
+- `meal`: breakfast, lunch, snacks, or dinner
+- `dish`: non-empty dish name
+- `planned_portions`, `served_portions`, `waste_portions`, `attendance`: non-negative integers
+- `waste_portions` must not exceed `served_portions`
+- `is_weekend`: optional boolean
+- `event_factor`: optional positive number, defaults to 1
+- `weather`: optional text
 
-| Column | Meaning |
-|---|---|
-| `date` | YYYY-MM-DD |
-| `meal` | breakfast, lunch, snacks, or dinner |
-| `dish` | non-empty dish name |
-| `planned_portions` | non-negative integer |
-| `served_portions` | non-negative integer |
-| `waste_portions` | non-negative integer, no greater than served portions |
-| `attendance` | non-negative integer |
-| `is_weekend` | optional boolean |
-| `event_factor` | optional positive multiplier, default 1.0 |
-| `weather` | optional text |
+## Current model limits
 
-## Forecasting and optimizer limits
+Forecasting uses a recent median scaled by attendance where possible, with an explicit 75%-of-attendance fallback if no suitable earlier history exists. This is a transparent baseline, **not yet a trained high-accuracy model**. Confidence labels are heuristic. Proper chronological holdout testing and comparison against more advanced models should be done once enough approved operational history exists.
 
-The current forecast is a baseline (recent median, scaled by attendance where possible); it is **not** a trained high-accuracy model. When there is no matching earlier history, the documented fallback estimates 75% of attendance times the event factor. Confidence labels are heuristic. Evaluation metrics are provided, but a robust time-based model comparison and calibration still need to be run on real data.
+The optimizer rounds forecasts to complete batches after a configurable buffer. That can create a large surplus for big vessel sizes; set a batch size that matches the real kitchen workflow and review every proposal. Context notes are surfaced to the operator but do not silently change the numeric forecast.
 
-Plans round up to complete batch sizes after an explicitly configured buffer. This can result in a large surplus when batch size is large, so use practical vessel/batch units for a real kitchen. Operator context is recorded in the explanation but intentionally does not silently alter forecast numbers.
+## Data and safety note
 
-## Data and safety notes
-
-The bundled CSV is synthetic and exists only for development/testing. It is not actual college-mess data and must not be used to claim real waste reduction. MessWise is decision support, **not** unattended kitchen control: review every plan, verify food-safety and serving assumptions, and use approved operational data before acting on recommendations.
-
-## Current project state
-
-The repository now contains the initial end-to-end implementation scaffold for phases 1–10. Run the local commands above to install dependencies and verify the project in your environment; this ChatGPT session cannot run GitHub-hosted CI or your Mac's browser.
+The included CSV is synthetic sample data, not real campus-mess data. Do not report it as evidence of real waste reduction. MessWise is decision support, not automatic cooking control; staff must approve every production recommendation.
