@@ -22,7 +22,20 @@ def test_summary_and_history_endpoints_share_database():
         assert 0 <= payload["average_waste_rate_pct"] <= 100
         assert payload["top_waste_dishes"]
         # Limited history should contain the latest rows, not the oldest rows.
-        assert max(row["date"] for row in history.json()) == "2026-10-18"
+        assert max(row["date"] for row in history.json()) == "2026-08-31"
+
+
+def test_menu_lookup_reuses_same_day_of_month_from_source_dataset():
+    with TestClient(app) as client:
+        source = client.get("/api/v1/menu", params={"date": "2026-08-04", "meal": "lunch"})
+        future = client.get("/api/v1/menu", params={"date": "2026-09-04", "meal": "lunch"})
+        assert source.status_code == 200, source.text
+        assert future.status_code == 200, future.text
+        assert source.json()["items"]
+        assert [item["dish"] for item in future.json()["items"]] == [
+            item["dish"] for item in source.json()["items"]
+        ]
+        assert all(item["template_date"].startswith("2026-08-04") for item in future.json()["items"])
 
 
 def test_forecast_plan_and_human_review_flow():
