@@ -64,7 +64,7 @@ export default function App() {
   const [demandRate, setDemandRate] = useState("");
   const [trends, setTrends] = useState<Trend[]>([]);\n  const [dishOptions, setDishOptions] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false);\n  const [replaceExisting, setReplaceExisting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -115,13 +115,13 @@ export default function App() {
     setUploading(true); setMessage(""); setError("");
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file);\n      form.append("replace_existing", String(replaceExisting));
       const response = await fetch(API_ROOT + "/api/v1/data/upload", {
         method: "POST", body: form,
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? "CSV import failed");
-      setMessage(`Imported ${body.inserted} new rows; skipped ${body.skipped_duplicates} duplicates.`);
+      setMessage(`${body.replaced_existing ? "Replaced previous history. " : ""}Imported ${body.inserted} rows; skipped ${body.skipped_duplicates} duplicates.`);
       input.value = "";
       await refresh();
     } catch (e) {
@@ -178,7 +178,8 @@ export default function App() {
           <article className="panel">
             <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Import the August 2026 menu dataset directly. MessWise preserves demand context and each item’s unit hint.</p></div></div>
             <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
-              <label>Meal history CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
+              <label>August 2026 menu CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
+              <label className="replace-toggle"><input type="checkbox" checked={replaceExisting} onChange={(event) => setReplaceExisting(event.target.checked)} /> Replace existing history (use this if the database contains demo rows or a different dataset)</label>
               <div className="tool-actions"><button className="primary-button" type="submit" disabled={uploading}>{uploading ? "Validating and importing…" : "Validate & import CSV"}</button><button className="secondary-button" type="button" onClick={exportCsv}>Export all history ↓</button><a className="template-link" href="/meal_history_template.csv" download>Download CSV template ↓</a></div>
               <p className="helper">Maximum 5 MB. Accepts the original columns: food_item, prepared_portions, consumed_portions, leftover_portions, hostel_attendance_estimate, and the weather/exam/menu context fields. Existing date + meal + item rows are skipped, not overwritten.</p>
             </form>
