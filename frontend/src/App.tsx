@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 const API = import.meta.env.VITE_API_BASE ?? "/api/v1";
+const API_ROOT = API.endsWith("/api/v1") ? API.slice(0, -7) : "";
 
 type Summary = {
   records: number; served_portions: number; waste_portions: number; waste_rate: number;
@@ -43,15 +44,19 @@ export default function App() {
   const [dish, setDish] = useState("dal tadka");
   const [attendance, setAttendance] = useState("170");
   const [batchSize, setBatchSize] = useState("25");
-  const [context, setContext] = useState("");\n  const [trends, setTrends] = useState<Trend[]>([]);\n  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);\n  const [uploading, setUploading] = useState(false);
+  const [context, setContext] = useState("");
+  const [trends, setTrends] = useState<Trend[]>([]);
+  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [s, h, p] = await Promise.all([
+      const [s, h, p, t, e] = await Promise.all([
         request<Summary>("/summary"), request<HistoryRow[]>("/history?limit=12"),
-        request<Plan[]>("/plans?limit=8"),
+        request<Plan[]>("/plans?limit=8"), request<Trend[]>("/analytics/trends"),
+        request<Evaluation>("/evaluation"),
       ]);
-      setSummary(s); setHistory(h); setPlans(p); setError("");
+      setSummary(s); setHistory(h); setPlans(p); setTrends(t); setEvaluation(e); setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to connect to the API");
     }
@@ -77,7 +82,8 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
-\n  async function uploadCsv(event: FormEvent<HTMLFormElement>) {
+
+  async function uploadCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input = event.currentTarget.elements.namedItem("historyCsv") as HTMLInputElement;
     const file = input.files?.[0];
@@ -86,7 +92,7 @@ export default function App() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const response = await fetch(API.replace(/\\/api\\/v1$/, "") + "/api/v1/data/upload", {
+      const response = await fetch(API_ROOT + "/api/v1/data/upload", {
         method: "POST", body: form,
       });
       const body = await response.json();
@@ -100,9 +106,10 @@ export default function App() {
   }
 
   function exportCsv() {
-    window.open(API.replace(/\\/api\\/v1$/, "") + "/api/v1/data/export", "_blank", "noopener,noreferrer");
+    window.open(API_ROOT + "/api/v1/data/export", "_blank", "noopener,noreferrer");
   }
-\n  async function review(plan: Plan, approved: boolean) {
+
+  async function review(plan: Plan, approved: boolean) {
     try {
       await request("/plans/" + plan.id + "/feedback", {
         method: "POST",
@@ -142,7 +149,8 @@ export default function App() {
           <article className="metric-card"><div className="metric-top"><span>Waste rate</span><span className="metric-icon blue">%</span></div><strong>{wastePct}{summary ? "%" : ""}</strong><small>leftover / served</small></article>
         </section>
 
-\n        <section className="content-grid phase-tools">
+
+        <section className="content-grid phase-tools">
           <article className="panel">
             <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Upload a CSV using the documented dataset columns. Existing records are never silently overwritten.</p></div></div>
             <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
@@ -169,7 +177,8 @@ export default function App() {
             return <div className="trend-row" key={trend.date}><span>{trend.date}</span><div className="trend-bar"><div style={{ width: (trend.waste_portions / maxWaste * 100) + "%" }} /></div><strong>{trend.waste_portions}</strong><small>{(trend.waste_rate * 100).toFixed(1)}%</small></div>;
           })}</div> : <p className="empty-state">No trend data is available yet.</p>}
         </section>
-\n        <section className="content-grid">
+
+        <section className="content-grid">
           <article className="panel planner" id="plan">
             <div className="panel-heading"><div><span className="eyebrow">DECISION SUPPORT</span><h2>Build a meal plan</h2><p>Use attendance and kitchen batch size to create a reviewable proposal.</p></div><span className="step-tag">01 / PLAN</span></div>
             <form onSubmit={submitPlan}>
