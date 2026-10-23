@@ -21,7 +21,8 @@ type HistoryRow = {
   exam_intensity?: number | null; expected_consumers?: number | null;
 };
 type Trend = { date: string; records: number; average_waste_rate_pct: number; waste_rate: number };
-type MealMetric = { meal: string; records: number; average_waste_rate_pct: number; average_liking_score: number | null; average_exam_intensity: number | null };\ntype Evaluation = {
+type MealMetric = { meal: string; records: number; average_waste_rate_pct: number; average_liking_score: number | null; average_exam_intensity: number | null };
+type Evaluation = {
   observations: number;
   metrics: { mae: number; rmse: number; wape: number } | null;
   note: string;
@@ -63,7 +64,8 @@ export default function App() {
   const [rainfallMm, setRainfallMm] = useState("");
   const [demandRate, setDemandRate] = useState("");
   const [trends, setTrends] = useState<Trend[]>([]);
-  const [dishOptions, setDishOptions] = useState<string[]>([]);\n  const [mealMetrics, setMealMetrics] = useState<MealMetric[]>([]);
+  const [dishOptions, setDishOptions] = useState<string[]>([]);
+  const [mealMetrics, setMealMetrics] = useState<MealMetric[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replaceExisting, setReplaceExisting] = useState(false);
@@ -73,10 +75,12 @@ export default function App() {
       const [s, h, p, t, e, d, m] = await Promise.all([
         request<Summary>("/summary"), request<HistoryRow[]>("/history?limit=12"),
         request<Plan[]>("/plans?limit=8"), request<Trend[]>("/analytics/trends"),
-        request<Evaluation>("/evaluation"), request<Array<{ dish: string }>>("/analytics/dishes"),\n        request<MealMetric[]>("/analytics/meals"),
+        request<Evaluation>("/evaluation"), request<Array<{ dish: string }>>("/analytics/dishes"),
+        request<MealMetric[]>("/analytics/meals"),
       ]);
       setSummary(s); setHistory(h); setPlans(p); setTrends(t); setEvaluation(e);
-      setDishOptions(Array.from(new Set(d.map((item) => item.dish))).sort((x, y) => x.localeCompare(y)));\n      setMealMetrics(m);
+      setDishOptions(Array.from(new Set(d.map((item) => item.dish))).sort((x, y) => x.localeCompare(y)));
+      setMealMetrics(m);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to connect to the API");
@@ -204,6 +208,14 @@ export default function App() {
             const maxRate = Math.max(...trends.slice(-14).map((item) => item.average_waste_rate_pct), 1);
             return <div className="trend-row" key={trend.date}><span>{trend.date}</span><div className="trend-bar"><div style={{ width: (trend.average_waste_rate_pct / maxRate * 100) + "%" }} /></div><strong>{trend.average_waste_rate_pct.toFixed(1)}%</strong><small>{trend.records} items</small></div>;
           })}</div> : <p className="empty-state">Upload the August menu CSV to view daily trends.</p>}
+        </section>
+
+        <section className="panel table-panel">
+          <div className="panel-heading table-heading"><div><span className="eyebrow">MEAL-SERVICE COMPARISON</span><h2>Which service needs attention?</h2><p>Average item-level waste rate by meal service. Use this as a screening signal, not proof of cause.</p></div></div>
+          {mealMetrics.length ? <div className="trend-list">{mealMetrics.map((item) => {
+            const maxRate = Math.max(...mealMetrics.map((value) => value.average_waste_rate_pct), 1);
+            return <div className="trend-row" key={item.meal}><span className="meal-name">{item.meal}</span><div className="trend-bar"><div style={{ width: (item.average_waste_rate_pct / maxRate * 100) + "%" }} /></div><strong>{item.average_waste_rate_pct.toFixed(2)}%</strong><small>{item.records} rows</small></div>;
+          })}</div> : <p className="empty-state">Upload the menu dataset to compare meal services.</p>}
         </section>
 
         <section className="content-grid">
