@@ -96,6 +96,50 @@ def summary(db: Session = Depends(get_db)):
     }
 
 
+@app.get(f"{settings.api_v1_prefix}/menu")
+def menu_for_service_date(
+    date: str = Query(..., description="Target service date YYYY-MM-DD"),
+    meal: str = Query(..., min_length=1, max_length=32),
+    db: Session = Depends(get_db),
+):
+    """Reuse the source month's day-of-month menu for any target month/year."""
+    try:
+        target = pd.Timestamp(date).date()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD") from exc
+    frame = history_frame(db)
+    if frame.empty:
+        return {"date": str(target), "meal": meal.lower(), "template_day": target.day, "items": []}
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    matched = frame[
+        (frame["date"].dt.day == target.day) &
+        (frame["meal"].astype(str).str.lower() == meal.lower())
+    ].copy()
+    if matched.empty:
+        return {"date": str(target), "meal": meal.lower(), "template_day": target.day, "items": []}
+    items = []
+    for _, row in matched.sort_values("dish").iterrows():
+        def value(field):
+            val = row.get(field)
+            return None if pd.isna(val) else val.item() if hasattr(val, "item") else val
+        items.append({
+            "dish": str(row["dish"]),
+            "template_date": str(pd.Timestamp(row["date"]).date()),
+            "served_portions": value("served_portions"),
+            "prepared_portions": value("prepared_portions") or value("planned_portions"),
+            "waste_portions": value("waste_portions"),
+            "attendance": value("attendance"),
+            "synthetic_liking_score": value("synthetic_liking_score"),
+            "exam_intensity": value("exam_intensity"),
+            "temperature_c": value("temperature_c"),
+            "rainfall_mm": value("rainfall_mm"),
+            "historical_demand_rate": value("historical_demand_rate"),
+            "quantity_unit_hint": value("quantity_unit_hint"),
+            "waste_rate_pct": value("waste_rate_pct"),
+        })
+    return {"date": str(target), "meal": meal.lower(), "template_day": target.day, "template_month": "August 2026", "items": items}
+
+
 @app.get(f"{settings.api_v1_prefix}/history")
 def history(limit: int = Query(default=100, ge=1, le=1000), db: Session = Depends(get_db)):
     frame = history_frame(db, limit=limit)
