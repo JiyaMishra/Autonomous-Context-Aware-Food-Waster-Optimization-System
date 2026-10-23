@@ -57,6 +57,11 @@ export default function App() {
   const [attendance, setAttendance] = useState("170");
   const [batchSize, setBatchSize] = useState("25");
   const [context, setContext] = useState("");
+  const [likingScore, setLikingScore] = useState("");
+  const [examIntensity, setExamIntensity] = useState("");
+  const [temperatureC, setTemperatureC] = useState("");
+  const [rainfallMm, setRainfallMm] = useState("");
+  const [demandRate, setDemandRate] = useState("");
   const [trends, setTrends] = useState<Trend[]>([]);\n  const [dishOptions, setDishOptions] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -87,6 +92,11 @@ export default function App() {
           date: targetDate, meal, dish, attendance: Number(attendance),
           batch_size: Number(batchSize), minimum_buffer_pct: 0.05,
           extra_context: context.split("\n").map((v) => v.trim()).filter(Boolean),
+          synthetic_liking_score: likingScore === "" ? null : Number(likingScore),
+          exam_intensity: examIntensity === "" ? null : Number(examIntensity),
+          temperature_c: temperatureC === "" ? null : Number(temperatureC),
+          rainfall_mm: rainfallMm === "" ? null : Number(rainfallMm),
+          historical_demand_rate: demandRate === "" ? null : Number(demandRate),
         }),
       });
       setMessage("Plan created. Review the recommendation before cooking.");
@@ -205,7 +215,20 @@ export default function App() {
                 <label>Expected attendance<input type="number" min="0" required value={attendance} onChange={(e) => setAttendance(e.target.value)} /></label>
                 <label>Portions per batch<input type="number" min="1" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} /></label>
               </div>
-              <label>Context notes <span className="optional">(optional)</span><textarea rows={2} value={context} onChange={(e) => setContext(e.target.value)} placeholder={"Rain expected\nSports event on campus"} /></label>
+              <div className="context-section">
+                <span className="eyebrow">DATASET CONTEXT · OPTIONAL</span>
+                <p>Use expected conditions to find earlier, similar menu observations. Leave blank if unknown.</p>
+                <div className="form-row">
+                  <label>Item liking (0–1)<input type="number" min="0" max="1" step="0.01" value={likingScore} onChange={(e) => setLikingScore(e.target.value)} placeholder="e.g. 0.72" /></label>
+                  <label>Exam intensity (0–1)<input type="number" min="0" max="1" step="0.05" value={examIntensity} onChange={(e) => setExamIntensity(e.target.value)} placeholder="e.g. 0.35" /></label>
+                </div>
+                <div className="form-row">
+                  <label>Temperature °C<input type="number" min="-10" max="60" step="0.1" value={temperatureC} onChange={(e) => setTemperatureC(e.target.value)} placeholder="e.g. 28" /></label>
+                  <label>Rainfall mm<input type="number" min="0" step="0.1" value={rainfallMm} onChange={(e) => setRainfallMm(e.target.value)} placeholder="e.g. 12" /></label>
+                </div>
+                <label>Historical demand rate (0–1)<input type="number" min="0" max="1" step="0.01" value={demandRate} onChange={(e) => setDemandRate(e.target.value)} placeholder="Optional source demand rate" /></label>
+              </div>
+              <label>Context notes <span className="optional">(optional)</span><textarea rows={2} value={context} onChange={(e) => setContext(e.target.value)} placeholder="Rain or campus event notes" /></label>
               <p className="helper">Notes are recorded for the operator. They do not automatically change the numeric forecast.</p>
               <button className="primary-button" type="submit" disabled={busy}>{busy ? "Building plan…" : "Generate kitchen plan"} <span>↗</span></button>
             </form>
