@@ -12,8 +12,10 @@ def _row_waste_pct(frame: pd.DataFrame) -> pd.Series:
     prepared = (
         pd.to_numeric(frame["prepared_portions"], errors="coerce")
         if "prepared_portions" in frame.columns
-        else pd.to_numeric(frame["planned_portions"], errors="coerce")
+        else pd.Series(float("nan"), index=frame.index)
     )
+    if "planned_portions" in frame.columns:
+        prepared = prepared.fillna(pd.to_numeric(frame["planned_portions"], errors="coerce"))
     fallback = pd.to_numeric(frame["waste_portions"], errors="coerce").div(prepared.replace(0, float("nan"))) * 100
     return source.fillna(fallback).fillna(0).clip(lower=0)
 
