@@ -55,16 +55,17 @@ def seed_database(csv_path: str | Path) -> None:
 
 
 def history_frame(db: Session, limit: int | None = None) -> pd.DataFrame:
-    query = db.query(MealHistory).order_by(
-        MealHistory.date.asc(), MealHistory.meal.asc(), MealHistory.dish.asc()
-    )
+    query = db.query(MealHistory)
     if limit is not None:
-        query = query.order_by(
-            MealHistory.date.desc(), MealHistory.meal.desc(), MealHistory.dish.desc()
-        ).limit(limit)
-        rows = list(reversed(query.all()))
+        rows = list(reversed(
+            query.order_by(None).order_by(
+                MealHistory.date.desc(), MealHistory.meal.desc(), MealHistory.dish.desc()
+            ).limit(limit).all()
+        ))
     else:
-        rows = query.all()
+        rows = query.order_by(
+            MealHistory.date.asc(), MealHistory.meal.asc(), MealHistory.dish.asc()
+        ).all()
 
     records = [{
         "date": row.date,

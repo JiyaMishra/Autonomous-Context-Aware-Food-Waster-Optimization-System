@@ -1,4 +1,3 @@
-from datetime import date
 from fastapi.testclient import TestClient
 from backend.app.main import app
 
@@ -19,6 +18,8 @@ def test_summary_and_history_endpoints_share_database():
         assert summary.json()["records"] >= len(history.json()) > 0
         payload = summary.json()
         assert payload["served_portions"] >= payload["waste_portions"]
+        # Limited history should contain the latest rows, not the oldest rows.
+        assert max(row["date"] for row in history.json()) == "2026-10-18"
 
 
 def test_forecast_plan_and_human_review_flow():
