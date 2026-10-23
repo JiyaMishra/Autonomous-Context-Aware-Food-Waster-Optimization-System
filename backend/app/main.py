@@ -1,12 +1,17 @@
 import json
+from io import BytesIO, StringIO
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+import pandas as pd
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from backend.app.analytics import dish_waste_analytics, evaluate_history, waste_trends
 from backend.app.core.config import settings
-from backend.app.data.repository import history_frame, seed_database
+from backend.app.data.pipeline import DataValidationError, normalize_and_validate
+from backend.app.data.repository import history_frame, import_frame, seed_database
 from backend.app.db import models  # noqa: F401
 from backend.app.db.models import PlanAudit
 from backend.app.db.session import Base, engine, get_db
@@ -19,10 +24,11 @@ from backend.app.schemas import (
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = ROOT / "data" / "raw" / "meal_history.csv"
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="0.2.0",
     description="Meal demand forecasting and kitchen decision-support API",
 )
 app.add_middleware(
@@ -50,30 +56,73 @@ def summary(db: Session = Depends(get_db)):
     frame = history_frame(db)
     served = int(frame["served_portions"].sum()) if not frame.empty else 0
     waste = int(frame["waste_portions"].sum()) if not frame.empty else 0
-    if frame.empty:
-        top_dishes = []
-    else:
-        top_dishes = (
-            frame.groupby("dish", as_index=False)["waste_portions"].sum()
-            .sort_values("waste_portions", ascending=False).head(5)
-            .to_dict(orient="records")
-        )
+    top_dishes = (
+        frame.groupby("dish", as_index=False)["waste_portions"].sum()
+        .sort_values("waste_portions", ascending=False).head(5).to_dict(orient="records")
+        if not frame.empty else []
+    )
     return {
-        "records": int(len(frame)),
-        "served_portions": served,
-        "waste_portions": waste,
+        "records": int(len(frame)), "served_portions": served, "waste_portions": waste,
         "waste_rate": round(waste / served, 4) if served else 0,
         "top_waste_dishes": top_dishes,
     }
 
 
 @app.get(f"{settings.api_v1_prefix}/history")
-def history(limit: int = 100, db: Session = Depends(get_db)):
-    if not 1 <= limit <= 1000:
-        raise HTTPException(400, "limit must be between 1 and 1000")
+def history(limit: int = Query(default=100, ge=1, le=1000), db: Session = Depends(get_db)):
     frame = history_frame(db, limit=limit)
     frame = frame.astype(object).where(frame.notna(), None)
     return frame.to_dict(orient="records")
+
+
+@app.get(f"{settings.api_v1_prefix}/analytics/trends")
+def analytics_trends(db: Session = Depends(get_db)):
+    return waste_trends(history_frame(db))
+
+
+@app.get(f"{settings.api_v1_prefix}/analytics/dishes")
+def analytics_dishes(db: Session = Depends(get_db)):
+    return dish_waste_analytics(history_frame(db))
+
+
+@app.get(f"{settings.api_v1_prefix}/evaluation")
+def evaluation(db: Session = Depends(get_db)):
+    return evaluate_history(history_frame(db))
+
+
+@app.post(f"{settings.api_v1_prefix}/data/upload")
+async def upload_history(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename or Path(file.filename).suffix.lower() != ".csv":
+        raise HTTPException(status_code=400, detail="Upload a .csv file.")
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="CSV must be 5 MB or smaller.")
+    try:
+        parsed = pd.read_csv(BytesIO(raw))
+        validated = normalize_and_validate(parsed)
+    except DataValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read CSV: {exc}") from exc
+    inserted, skipped = import_frame(db, validated)
+    return {
+        "filename": Path(file.filename).name,
+        "rows_received": int(len(validated)),
+        "inserted": inserted,
+        "skipped_duplicates": skipped,
+        "message": "Validated rows imported. Existing date/meal/dish keys were not overwritten.",
+    }
+
+
+@app.get(f"{settings.api_v1_prefix}/data/export")
+def export_history(db: Session = Depends(get_db)):
+    frame = history_frame(db)
+    buffer = StringIO()
+    frame.to_csv(buffer, index=False)
+    return Response(
+        content=buffer.getvalue(), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="messwise-history.csv"'},
+    )
 
 
 @app.post(f"{settings.api_v1_prefix}/forecast", response_model=ForecastResponse)
@@ -114,6 +163,8 @@ def review_plan(plan_id: int, feedback: DecisionFeedback, db: Session = Depends(
     audit = db.get(PlanAudit, plan_id)
     if audit is None:
         raise HTTPException(404, "Plan not found")
+    if audit.status != "pending_review":
+        raise HTTPException(409, f"Plan has already been reviewed as {audit.status}.")
     audit.status = "approved" if feedback.approved else "rejected"
     audit.reviewer = feedback.reviewer
     audit.review_note = feedback.note
@@ -122,9 +173,7 @@ def review_plan(plan_id: int, feedback: DecisionFeedback, db: Session = Depends(
 
 
 @app.get(f"{settings.api_v1_prefix}/plans")
-def list_plans(limit: int = 100, db: Session = Depends(get_db)):
-    if not 1 <= limit <= 500:
-        raise HTTPException(400, "limit must be between 1 and 500")
+def list_plans(limit: int = Query(default=100, ge=1, le=500), db: Session = Depends(get_db)):
     records = db.query(PlanAudit).order_by(PlanAudit.id.desc()).limit(limit).all()
     return [
         {
@@ -134,7 +183,7 @@ def list_plans(limit: int = 100, db: Session = Depends(get_db)):
             "batches": row.batches, "batch_size": row.batch_size,
             "expected_buffer_portions": row.expected_buffer_portions,
             "explanation": json.loads(row.explanation or "[]"),
-            "status": row.status,
+            "status": row.status, "reviewer": row.reviewer, "review_note": row.review_note,
         }
         for row in records
     ]
