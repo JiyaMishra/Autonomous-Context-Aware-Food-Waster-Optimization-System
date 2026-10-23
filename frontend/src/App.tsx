@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-const API = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api/v1";
+const API = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
 type Summary = {
   records: number; served_portions: number; waste_portions: number; waste_rate: number;
@@ -43,7 +43,7 @@ export default function App() {
   const [dish, setDish] = useState("dal tadka");
   const [attendance, setAttendance] = useState("170");
   const [batchSize, setBatchSize] = useState("25");
-  const [context, setContext] = useState("");
+  const [context, setContext] = useState("");\n  const [trends, setTrends] = useState<Trend[]>([]);\n  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);\n  const [uploading, setUploading] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -77,7 +77,32 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
-  async function review(plan: Plan, approved: boolean) {
+\n  async function uploadCsv(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const input = event.currentTarget.elements.namedItem("historyCsv") as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    setUploading(true); setMessage(""); setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(API.replace(/\\/api\\/v1$/, "") + "/api/v1/data/upload", {
+        method: "POST", body: form,
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail ?? "CSV import failed");
+      setMessage(`Imported ${body.inserted} new rows; skipped ${body.skipped_duplicates} duplicates.`);
+      input.value = "";
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "CSV import failed");
+    } finally { setUploading(false); }
+  }
+
+  function exportCsv() {
+    window.open(API.replace(/\\/api\\/v1$/, "") + "/api/v1/data/export", "_blank", "noopener,noreferrer");
+  }
+\n  async function review(plan: Plan, approved: boolean) {
     try {
       await request("/plans/" + plan.id + "/feedback", {
         method: "POST",
@@ -117,7 +142,34 @@ export default function App() {
           <article className="metric-card"><div className="metric-top"><span>Waste rate</span><span className="metric-icon blue">%</span></div><strong>{wastePct}{summary ? "%" : ""}</strong><small>leftover / served</small></article>
         </section>
 
-        <section className="content-grid">
+\n        <section className="content-grid phase-tools">
+          <article className="panel">
+            <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import real meal history</h2><p>Upload a CSV using the documented dataset columns. Existing records are never silently overwritten.</p></div></div>
+            <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
+              <label>Meal history CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
+              <div className="tool-actions"><button className="primary-button" type="submit" disabled={uploading}>{uploading ? "Validating and importing…" : "Validate & import CSV"}</button><button className="secondary-button" type="button" onClick={exportCsv}>Export all history ↓</button></div>
+              <p className="helper">Maximum 5 MB. Required columns: date, meal, dish, planned_portions, served_portions, waste_portions, attendance. Invalid rows are rejected with an explanation.</p>
+            </form>
+          </article>
+          <article className="panel">
+            <div className="panel-heading"><div><span className="eyebrow">PHASE 13 · MODEL CHECK</span><h2>Forecast evaluation</h2><p>Chronological backtest on stored history.</p></div></div>
+            {evaluation?.metrics ? <div className="evaluation-grid">
+              <div><small>MAE</small><strong>{evaluation.metrics.mae}</strong><span>portions</span></div>
+              <div><small>RMSE</small><strong>{evaluation.metrics.rmse}</strong><span>portions</span></div>
+              <div><small>WAPE</small><strong>{(evaluation.metrics.wape * 100).toFixed(1)}%</strong><span>weighted error</span></div>
+            </div> : <p className="empty-state">{evaluation?.note ?? "Loading evaluation…"}</p>}
+            <p className="helper">{evaluation?.observations ?? 0} evaluable observations. Metrics describe historical baseline performance, not a guarantee of future accuracy.</p>
+          </article>
+        </section>
+
+        <section className="panel table-panel">
+          <div className="panel-heading table-heading"><div><span className="eyebrow">PHASE 12 · WASTE ANALYTICS</span><h2>Daily waste trend</h2><p>Daily served portions and reported leftovers.</p></div><span className="quiet-tag">{trends.length} days</span></div>
+          {trends.length ? <div className="trend-list">{trends.slice(-14).map((trend) => {
+            const maxWaste = Math.max(...trends.slice(-14).map((item) => item.waste_portions), 1);
+            return <div className="trend-row" key={trend.date}><span>{trend.date}</span><div className="trend-bar"><div style={{ width: (trend.waste_portions / maxWaste * 100) + "%" }} /></div><strong>{trend.waste_portions}</strong><small>{(trend.waste_rate * 100).toFixed(1)}%</small></div>;
+          })}</div> : <p className="empty-state">No trend data is available yet.</p>}
+        </section>
+\n        <section className="content-grid">
           <article className="panel planner" id="plan">
             <div className="panel-heading"><div><span className="eyebrow">DECISION SUPPORT</span><h2>Build a meal plan</h2><p>Use attendance and kitchen batch size to create a reviewable proposal.</p></div><span className="step-tag">01 / PLAN</span></div>
             <form onSubmit={submitPlan}>
