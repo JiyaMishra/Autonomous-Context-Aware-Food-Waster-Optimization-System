@@ -7,12 +7,15 @@ def test_analytics_and_evaluation_endpoints():
     with TestClient(app) as client:
         trends = client.get("/api/v1/analytics/trends")
         dishes = client.get("/api/v1/analytics/dishes")
+        meals = client.get("/api/v1/analytics/meals")
         evaluation = client.get("/api/v1/evaluation")
         assert trends.status_code == 200
         assert dishes.status_code == 200
+        assert meals.status_code == 200
         assert evaluation.status_code == 200
         assert trends.json()
         assert dishes.json()
+        assert meals.json()
         assert "observations" in evaluation.json()
         assert "note" in evaluation.json()
 
