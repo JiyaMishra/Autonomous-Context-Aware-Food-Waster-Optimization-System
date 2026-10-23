@@ -22,6 +22,7 @@ type HistoryRow = {
 };
 type Trend = { date: string; records: number; average_waste_rate_pct: number; waste_rate: number };
 type MealMetric = { meal: string; records: number; average_waste_rate_pct: number; average_liking_score: number | null; average_exam_intensity: number | null };
+type MenuItem = { dish: string; template_date: string; served_portions: number | null; prepared_portions: number | null; waste_portions: number | null; attendance: number | null; synthetic_liking_score: number | null; exam_intensity: number | null; temperature_c: number | null; rainfall_mm: number | null; historical_demand_rate: number | null; quantity_unit_hint: string | null; waste_rate_pct: number | null };
 type Evaluation = {
   observations: number;
   metrics: { mae: number; rmse: number; wape: number } | null;
@@ -69,6 +70,11 @@ export default function App() {
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replaceExisting, setReplaceExisting] = useState(false);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuLoading, setMenuLoading] = useState(false);
+  const [menuError, setMenuError] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpQuestion, setHelpQuestion] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -88,6 +94,35 @@ export default function App() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const loadMenu = useCallback(async () => {
+    setMenuLoading(true); setMenuError("");
+    try {
+      const result = await request<{ date: string; meal: string; template_day: number; template_month?: string; items: MenuItem[] }>("/menu?date=" + encodeURIComponent(targetDate) + "&meal=" + encodeURIComponent(meal));
+      setMenuItems(result.items);
+      if (result.items.length) {
+        if (!result.items.some((item) => item.dish === dish)) setDish(result.items[0].dish);
+      } else {
+        setDish("");
+        setMenuError("No " + meal + " menu found for day " + Number(targetDate.slice(-2)) + " in the August source dataset.");
+      }
+    } catch (e) {
+      setMenuItems([]); setMenuError(e instanceof Error ? e.message : "Could not load this day's menu.");
+    } finally { setMenuLoading(false); }
+  }, [targetDate, meal]);
+
+  useEffect(() => { void loadMenu(); }, [loadMenu]);
+  const selectedMenuItem = menuItems.find((item) => item.dish === dish);
+
+  const helpAnswer = (question: string) => {
+    const q = question.toLowerCase();
+    if (q.includes("menu") || q.includes("date") || q.includes("dish") || q.includes("food")) return "Choose a service date and meal. MessWise looks up the same day number in your August 2026 history and lists the foods recorded for that meal. For example, 12 September uses the 12 August menu. Dates after the 31st have no August day template.";
+    if (q.includes("forecast") || q.includes("plan") || q.includes("portion") || q.includes("prepare")) return "In Meal planning, select a food from the menu dropdown, enter expected attendance and batch size, then choose Generate kitchen plan. The result is a proposal based on earlier records; review it before cooking.";
+    if (q.includes("csv") || q.includes("upload") || q.includes("data")) return "Use Import August 2026 menu CSV to upload a CSV. Only select Replace existing history when you intentionally want to replace stored records. The repository source CSV is loaded automatically into a fresh database.";
+    if (q.includes("waste") || q.includes("analytics")) return "The overview shows record counts, average source waste rate, daily trends, meal comparisons, and dishes with high waste rates. Units can differ, so do not add kg, litres, pieces, and servings together.";
+    if (q.includes("approve") || q.includes("review")) return "Scroll to Plans awaiting review. Expand Why this plan? to see the explanation, then approve or reject the proposal. MessWise never automatically starts cooking.";
+    return "I can guide you through the menu dropdown, CSV data, forecasts, waste analytics, or plan reviews. Try asking: How do I choose today's menu? or How do I generate a plan?";
+  };
 
   async function submitPlan(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage(""); setError("");
