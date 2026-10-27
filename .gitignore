@@ -14,5 +14,9 @@ node_modules/
 frontend/dist/
 .DS_Store
 *.sqlite3
+*.db
+*.tsbuildinfo
+*.egg-info/
 data/processed/*
 !data/processed/.gitkeep
+

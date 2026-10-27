@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.app.analytics import dish_waste_analytics, evaluate_history, meal_waste_analytics, waste_trends
+from backend.app.attendance_predictor import predict_attendance
 from backend.app.core.config import settings
 from backend.app.data.pipeline import DataValidationError, normalize_and_validate
 from backend.app.data.repository import history_frame, import_frame, seed_database
@@ -18,6 +19,7 @@ from backend.app.db.session import Base, engine, get_db
 from backend.app.decision import propose_plan
 from backend.app.forecasting import forecast_demand
 from backend.app.schemas import (
+    AttendancePredictionRequest, AttendancePredictionResponse,
     DecisionFeedback, ForecastRequest, ForecastResponse, HealthResponse,
     PlanRequest, PlanResponse,
 )
@@ -210,12 +212,56 @@ def export_history(db: Session = Depends(get_db)):
     )
 
 
+@app.post(f"{settings.api_v1_prefix}/predict-attendance", response_model=AttendancePredictionResponse)
+def predict_attendance_endpoint(request: AttendancePredictionRequest, db: Session = Depends(get_db)):
+    """AI-driven attendance prediction using weather, exam calendar, and ML model."""
+    frame = history_frame(db)
+    weather_override = None
+    if request.temperature_c is not None:
+        weather_override = {
+            "temperature_c": request.temperature_c,
+            "rainfall_mm": request.rainfall_mm or 0.0,
+            "source": "user parameter adjustment",
+        }
+    prediction = predict_attendance(
+        frame, request.date, request.meal,
+        weather_override=weather_override,
+        exam_override=request.exam_intensity,
+        exam_label_override=request.exam_label,
+        campus_situation=request.campus_situation,
+        campus_factor=request.campus_factor,
+        total_registered=request.total_registered,
+    )
+    return {"date": request.date, "meal": request.meal, **prediction}
+
+
 @app.post(f"{settings.api_v1_prefix}/forecast", response_model=ForecastResponse)
 def forecast(request: ForecastRequest, db: Session = Depends(get_db)):
     frame = history_frame(db)
+    # Auto-predict attendance if not provided by the user.
+    auto_attendance = None
+    attendance = request.attendance
+    if attendance is None:
+        weather_override = None
+        if request.temperature_c is not None:
+            weather_override = {
+                "temperature_c": request.temperature_c,
+                "rainfall_mm": request.rainfall_mm or 0.0,
+                "source": "user parameter adjustment",
+            }
+        prediction = predict_attendance(
+            frame, request.date, request.meal,
+            weather_override=weather_override,
+            exam_override=request.exam_intensity,
+            exam_label_override=request.exam_label,
+            campus_situation=request.campus_situation,
+            campus_factor=request.campus_factor,
+        )
+        attendance = prediction["predicted_attendance"]
+        auto_attendance = attendance
     result = forecast_demand(
         frame, request.date, request.meal, request.dish,
-        request.attendance, request.event_factor,
+        attendance, request.event_factor,
         target_context={
             "synthetic_liking_score": request.synthetic_liking_score,
             "exam_intensity": request.exam_intensity,
@@ -224,14 +270,39 @@ def forecast(request: ForecastRequest, db: Session = Depends(get_db)):
             "historical_demand_rate": request.historical_demand_rate,
         },
     )
-    return {"date": request.date, "meal": request.meal, "dish": request.dish, **result}
+    return {
+        "date": request.date, "meal": request.meal, "dish": request.dish,
+        "auto_predicted_attendance": auto_attendance, **result,
+    }
 
 
 @app.post(f"{settings.api_v1_prefix}/plans", response_model=PlanResponse)
 def create_plan(request: PlanRequest, db: Session = Depends(get_db)):
+    frame = history_frame(db)
+    # Auto-predict attendance if not provided by the user.
+    auto_attendance = None
+    attendance = request.attendance
+    if attendance is None:
+        weather_override = None
+        if request.temperature_c is not None:
+            weather_override = {
+                "temperature_c": request.temperature_c,
+                "rainfall_mm": request.rainfall_mm or 0.0,
+                "source": "user parameter adjustment",
+            }
+        prediction = predict_attendance(
+            frame, request.date, request.meal,
+            weather_override=weather_override,
+            exam_override=request.exam_intensity,
+            exam_label_override=request.exam_label,
+            campus_situation=request.campus_situation,
+            campus_factor=request.campus_factor,
+        )
+        attendance = prediction["predicted_attendance"]
+        auto_attendance = attendance
     plan = propose_plan(
-        history_frame(db), request.date, request.meal, request.dish,
-        request.attendance, request.event_factor, request.extra_context,
+        frame, request.date, request.meal, request.dish,
+        attendance, request.event_factor, request.extra_context,
         request.batch_size, request.minimum_buffer_pct,
         context_features={
             "synthetic_liking_score": request.synthetic_liking_score,
@@ -241,6 +312,9 @@ def create_plan(request: PlanRequest, db: Session = Depends(get_db)):
             "historical_demand_rate": request.historical_demand_rate,
         },
     )
+    if auto_attendance is not None:
+        plan["explanation"].insert(0, f"AI predicted attendance: {auto_attendance} students (predicted from weather, exam, and campus parameters).")
+    plan["auto_predicted_attendance"] = auto_attendance
     audit = PlanAudit(
         date=request.date, meal=request.meal, dish=request.dish,
         forecast_portions=plan["forecast_portions"],
@@ -286,3 +360,11 @@ def list_plans(limit: int = Query(default=100, ge=1, le=500), db: Session = Depe
         }
         for row in records
     ]
+
+
+@app.delete(f"{settings.api_v1_prefix}/plans")
+def clear_plans(db: Session = Depends(get_db)):
+    deleted = db.query(PlanAudit).delete()
+    db.commit()
+    return {"message": f"Cleared {deleted} plan(s)."}
+

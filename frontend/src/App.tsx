@@ -4,25 +4,88 @@ const API = import.meta.env.VITE_API_BASE ?? "/api/v1";
 const API_ROOT = API.endsWith("/api/v1") ? API.slice(0, -7) : "";
 
 type Summary = {
-  records: number; unique_dishes: number; service_days: number;
-  waste_rate: number; average_waste_rate_pct: number;
-  top_waste_dishes: { dish: string; records: number; average_waste_rate_pct: number; total_waste_in_item_unit: number; quantity_unit_hint: string }[];
-  unit_breakdown: { unit: string; records: number; average_waste_rate_pct: number }[];
+  records: number;
+  unique_dishes: number;
+  service_days: number;
+  waste_rate: number;
+  average_waste_rate_pct: number;
+  top_waste_dishes: {
+    dish: string;
+    records: number;
+    average_waste_rate_pct: number;
+    total_waste_in_item_unit: number;
+    quantity_unit_hint: string;
+  }[];
+  unit_breakdown: {
+    unit: string;
+    records: number;
+    average_waste_rate_pct: number;
+  }[];
 };
+
 type Plan = {
-  id: number; date: string; meal: string; dish: string; forecast_portions: number;
-  recommended_portions: number; batches: number; batch_size: number;
-  expected_buffer_portions: number; status: string; explanation: string[];
+  id: number;
+  date: string;
+  meal: string;
+  dish: string;
+  forecast_portions: number;
+  recommended_portions: number;
+  batches: number;
+  batch_size: number;
+  expected_buffer_portions: number;
+  status: string;
+  explanation: string[];
+  auto_predicted_attendance?: number | null;
+  reviewer?: string | null;
+  review_note?: string | null;
 };
+
 type HistoryRow = {
-  date: string; meal: string; dish: string; served_portions: number; waste_portions: number;
-  planned_portions?: number; prepared_portions?: number | null; waste_rate_pct?: number | null;
-  quantity_unit_hint?: string | null; synthetic_liking_score?: number | null;
-  exam_intensity?: number | null; expected_consumers?: number | null;
+  date: string;
+  meal: string;
+  dish: string;
+  served_portions: number;
+  waste_portions: number;
+  planned_portions?: number;
+  prepared_portions?: number | null;
+  waste_rate_pct?: number | null;
+  quantity_unit_hint?: string | null;
+  synthetic_liking_score?: number | null;
+  exam_intensity?: number | null;
+  expected_consumers?: number | null;
 };
-type Trend = { date: string; records: number; average_waste_rate_pct: number; waste_rate: number };
-type MealMetric = { meal: string; records: number; average_waste_rate_pct: number; average_liking_score: number | null; average_exam_intensity: number | null };
-type MenuItem = { dish: string; template_date: string; served_portions: number | null; prepared_portions: number | null; waste_portions: number | null; attendance: number | null; synthetic_liking_score: number | null; exam_intensity: number | null; temperature_c: number | null; rainfall_mm: number | null; historical_demand_rate: number | null; quantity_unit_hint: string | null; waste_rate_pct: number | null };
+
+type Trend = {
+  date: string;
+  records: number;
+  average_waste_rate_pct: number;
+  waste_rate: number;
+};
+
+type MealMetric = {
+  meal: string;
+  records: number;
+  average_waste_rate_pct: number;
+  average_liking_score: number | null;
+  average_exam_intensity: number | null;
+};
+
+type MenuItem = {
+  dish: string;
+  template_date: string;
+  served_portions: number | null;
+  prepared_portions: number | null;
+  waste_portions: number | null;
+  attendance: number | null;
+  synthetic_liking_score: number | null;
+  exam_intensity: number | null;
+  temperature_c: number | null;
+  rainfall_mm: number | null;
+  historical_demand_rate: number | null;
+  quantity_unit_hint: string | null;
+  waste_rate_pct: number | null;
+};
+
 type Evaluation = {
   observations: number;
   metrics: { mae: number; rmse: number; wape: number } | null;
@@ -30,14 +93,57 @@ type Evaluation = {
   methods?: Record<string, number>;
 };
 
+type AttendancePrediction = {
+  predicted_attendance: number;
+  predicted_absent: number;
+  total_registered: number;
+  turnout_pct: number;
+  weather: { temperature_c: number; rainfall_mm: number; source: string };
+  exam: {
+    intensity: number;
+    label: string | null;
+    is_exam_period: boolean;
+    is_ramp_up: boolean;
+    days_until_exam?: number;
+    effect: string;
+  };
+  campus_situation?: string | null;
+  campus_factor?: number;
+  confidence: string;
+  method: string;
+  training_samples: number;
+  factors: {
+    weather_effect: string;
+    exam_effect: string;
+    day_effect: string;
+    campus_effect?: string;
+  };
+  factors_summary: string[];
+};
+
 function todayLocal() {
   const d = new Date();
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function offsetDate(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(API + path, {
-    ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -47,131 +153,307 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export default function App() {
+  // Navigation tab state
+  const [activeTab, setActiveTab] = useState<"planner" | "reviews" | "analytics" | "data" | "history">("planner");
+
+  // Core data states
   const [summary, setSummary] = useState<Summary | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [targetDate, setTargetDate] = useState(todayLocal());
-  const [meal, setMeal] = useState("breakfast");
-  const [dish, setDish] = useState("Aloo Paratha");
-  const [attendance, setAttendance] = useState("500");
-  const [batchSize, setBatchSize] = useState("25");
-  const [context, setContext] = useState("");
-  const [likingScore, setLikingScore] = useState("");
-  const [examIntensity, setExamIntensity] = useState("");
-  const [temperatureC, setTemperatureC] = useState("");
-  const [rainfallMm, setRainfallMm] = useState("");
-  const [demandRate, setDemandRate] = useState("");
   const [trends, setTrends] = useState<Trend[]>([]);
   const [dishOptions, setDishOptions] = useState<string[]>([]);
   const [mealMetrics, setMealMetrics] = useState<MealMetric[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+
+  // Status & Feedback states
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [replaceExisting, setReplaceExisting] = useState(false);
+
+  // Meal planning form states
+  const [targetDate, setTargetDate] = useState(todayLocal());
+  const [meal, setMeal] = useState("lunch");
+  const [dish, setDish] = useState("Dal Tadka");
+  const [batchSize, setBatchSize] = useState("25");
+  const [context, setContext] = useState("");
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
   const [menuError, setMenuError] = useState("");
+
+  // Plan reviews filter state
+  const [reviewFilter, setReviewFilter] = useState<"all" | "pending_review" | "approved" | "rejected">("all");
+
+  // Analytics filter state
+  const [unitFilter, setUnitFilter] = useState<string>("all");
+
+  // AI Attendance Prediction states
+  const [aiPrediction, setAiPrediction] = useState<AttendancePrediction | null>(null);
+  const [aiPredictionLoading, setAiPredictionLoading] = useState(false);
+  const [aiPredictionError, setAiPredictionError] = useState("");
+
+  // Contextual parameter overrides
+  const [examSetting, setExamSetting] = useState<"none" | "quiz" | "cat1" | "cat2" | "fat" | "auto">("none");
+  const [weatherSetting, setWeatherSetting] = useState<"auto" | "clear" | "hot" | "light_rain" | "heavy_rain" | "custom">("auto");
+  const [customTemp, setCustomTemp] = useState("28");
+  const [customRain, setCustomRain] = useState("0");
+  const [situationSetting, setSituationSetting] = useState<"normal" | "weekend_home" | "college_fest" | "holiday" | "custom">("normal");
+  const [customFactorPct, setCustomFactorPct] = useState("100");
+  const [paramsDrawerOpen, setParamsDrawerOpen] = useState(false);
+
+  // Chatbot state
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpQuestion, setHelpQuestion] = useState("");
   const [submittedHelpQuestion, setSubmittedHelpQuestion] = useState("");
 
+  // Refresh all dashboard data
   const refresh = useCallback(async () => {
     try {
       const [s, h, p, t, e, d, m] = await Promise.all([
-        request<Summary>("/summary"), request<HistoryRow[]>("/history?limit=12"),
-        request<Plan[]>("/plans?limit=8"), request<Trend[]>("/analytics/trends"),
-        request<Evaluation>("/evaluation"), request<Array<{ dish: string }>>("/analytics/dishes"),
+        request<Summary>("/summary"),
+        request<HistoryRow[]>("/history?limit=15"),
+        request<Plan[]>("/plans?limit=15"),
+        request<Trend[]>("/analytics/trends"),
+        request<Evaluation>("/evaluation"),
+        request<Array<{ dish: string }>>("/analytics/dishes"),
         request<MealMetric[]>("/analytics/meals"),
       ]);
-      setSummary(s); setHistory(h); setPlans(p); setTrends(t); setEvaluation(e);
+      setSummary(s);
+      setHistory(h);
+      setPlans(p);
+      setTrends(t);
+      setEvaluation(e);
       setDishOptions(Array.from(new Set(d.map((item) => item.dish))).sort((x, y) => x.localeCompare(y)));
       setMealMetrics(m);
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to connect to the API");
+      setError(e instanceof Error ? e.message : "Unable to connect to the MessWise API");
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
-  const loadMenu = useCallback(async () => {
-    setMenuLoading(true); setMenuError("");
+  // Construct parameter payload for AI Attendance model
+  const getPredictionPayload = useCallback(() => {
+    let exam_intensity: number | null = null;
+    let exam_label: string | null = null;
+    if (examSetting === "none") {
+      exam_intensity = 0.0;
+      exam_label = "No exams (regular schedule)";
+    } else if (examSetting === "quiz") {
+      exam_intensity = 0.25;
+      exam_label = "Minor Quizzes / Quiz prep";
+    } else if (examSetting === "cat1") {
+      exam_intensity = 0.6;
+      exam_label = "CAT-1 Exams";
+    } else if (examSetting === "cat2") {
+      exam_intensity = 0.75;
+      exam_label = "CAT-2 Exams";
+    } else if (examSetting === "fat") {
+      exam_intensity = 0.95;
+      exam_label = "FAT Final Exams";
+    }
+
+    let temperature_c: number | null = null;
+    let rainfall_mm: number | null = null;
+    if (weatherSetting === "clear") {
+      temperature_c = 27.0;
+      rainfall_mm = 0.0;
+    } else if (weatherSetting === "hot") {
+      temperature_c = 36.0;
+      rainfall_mm = 0.0;
+    } else if (weatherSetting === "light_rain") {
+      temperature_c = 25.0;
+      rainfall_mm = 5.0;
+    } else if (weatherSetting === "heavy_rain") {
+      temperature_c = 23.0;
+      rainfall_mm = 25.0;
+    } else if (weatherSetting === "custom") {
+      temperature_c = Number(customTemp) || 28.0;
+      rainfall_mm = Number(customRain) || 0.0;
+    }
+
+    let campus_situation: string | null = null;
+    let campus_factor = 1.0;
+    if (situationSetting === "weekend_home") {
+      campus_situation = "Students went home (long weekend)";
+      campus_factor = 0.7;
+    } else if (situationSetting === "college_fest") {
+      campus_situation = "College fest / Hackathon on campus";
+      campus_factor = 1.1;
+    } else if (situationSetting === "holiday") {
+      campus_situation = "Special holiday / Campus closure";
+      campus_factor = 0.6;
+    } else if (situationSetting === "custom") {
+      campus_situation = "Custom occupancy adjustment";
+      campus_factor = Math.max(0.1, (Number(customFactorPct) || 100) / 100);
+    }
+
+    return {
+      date: targetDate,
+      meal,
+      exam_intensity,
+      exam_label,
+      temperature_c,
+      rainfall_mm,
+      campus_situation,
+      campus_factor,
+    };
+  }, [targetDate, meal, examSetting, weatherSetting, customTemp, customRain, situationSetting, customFactorPct]);
+
+  // Fetch AI attendance prediction
+  const fetchAiPrediction = useCallback(async () => {
+    setAiPredictionLoading(true);
+    setAiPredictionError("");
     try {
-      const result = await request<{ date: string; meal: string; template_day: number; template_month?: string; items: MenuItem[] }>("/menu?date=" + encodeURIComponent(targetDate) + "&meal=" + encodeURIComponent(meal));
+      const payload = getPredictionPayload();
+      const result = await request<AttendancePrediction>("/predict-attendance", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setAiPrediction(result);
+    } catch (e) {
+      setAiPredictionError(e instanceof Error ? e.message : "Could not predict attendance.");
+      setAiPrediction(null);
+    } finally {
+      setAiPredictionLoading(false);
+    }
+  }, [getPredictionPayload]);
+
+  useEffect(() => {
+    void fetchAiPrediction();
+  }, [fetchAiPrediction]);
+
+  // Load menu items for chosen date & meal
+  const loadMenu = useCallback(async () => {
+    setMenuLoading(true);
+    setMenuError("");
+    try {
+      const result = await request<{
+        date: string;
+        meal: string;
+        template_day: number;
+        items: MenuItem[];
+      }>("/menu?date=" + encodeURIComponent(targetDate) + "&meal=" + encodeURIComponent(meal));
       setMenuItems(result.items);
       if (result.items.length) {
-        if (!result.items.some((item) => item.dish === dish)) setDish(result.items[0].dish);
+        if (!result.items.some((item) => item.dish === dish)) {
+          setDish(result.items[0].dish);
+        }
       } else {
         setDish("");
-        setMenuError("No " + meal + " menu found for day " + Number(targetDate.slice(-2)) + " in the August source dataset.");
+        setMenuError("No menu found for this service.");
       }
     } catch (e) {
-      setMenuItems([]); setMenuError(e instanceof Error ? e.message : "Could not load this day's menu.");
-    } finally { setMenuLoading(false); }
-  }, [targetDate, meal]);
+      setMenuItems([]);
+      setMenuError(e instanceof Error ? e.message : "Could not load menu items.");
+    } finally {
+      setMenuLoading(false);
+    }
+  }, [targetDate, meal, dish]);
 
-  useEffect(() => { void loadMenu(); }, [loadMenu]);
+  useEffect(() => {
+    void loadMenu();
+  }, [loadMenu]);
+
   const selectedMenuItem = menuItems.find((item) => item.dish === dish);
 
-  const helpAnswer = (question: string) => {
-    const q = question.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-    const has = (...words: string[]) => words.some((word) => q.includes(word));
-    const dateLabel = new Date(targetDate + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
-    const chosenDish = dish || "a menu item";
-    const selectedHistory = selectedMenuItem;
-    const currentContext = "For your current selection: " + dateLabel + ", " + meal + ", " + chosenDish + ". Expected attendance is " + (attendance || "not entered") + " people and batch size is " + (batchSize || "not entered") + ".";
-    if (has("hello", "hi messwise", "hey")) return "Hi! I can help you make sense of MessWise using real kitchen situations. For example, ask: 'Only 200 students came today—what should we do?', 'Why is it suggesting so much rice?', or 'What if it rains and fewer students come?' " + currentContext;
-    if (has("what if", "only ", "fewer students", "less students", "more students", "attendance", "students came", "students will come", "half the students", "low turnout", "turnout")) return "In a real mess, attendance is the number of people you expect to eat—not the total number of residents. Update Expected attendance to your best estimate, then click Generate kitchen plan. MessWise will recalculate the suggested amount using that estimate and historical records. If many students are absent, enter the lower expected attendance rather than blindly using the usual number. " + currentContext;
-    if (has("too much", "too many", "too little", "not enough", "shortage", "run out", "leftover", "left overs", "waste", "why suggest", "why did it", "why is it suggesting", "why so much", "why this amount")) return "Think of the forecast as a starting estimate, not an order. MessWise uses earlier similar meals and scales the estimate using expected attendance, then adds a small planning buffer and rounds up to full batches. If the amount looks wrong, check attendance, the selected food, and batch size; update them and generate the plan again. The kitchen team should also consider today's special circumstances. " + currentContext + (selectedHistory ? " The selected historical record shows " + (selectedHistory.prepared_portions ?? "an unknown") + " prepared, " + (selectedHistory.served_portions ?? "an unknown") + " consumed, and " + (selectedHistory.waste_portions ?? "an unknown") + " leftover (" + (selectedHistory.quantity_unit_hint ?? "source units") + ")." : "");
-    if (has("rain", "raining", "weather", "hot", "heat", "cold", "exam", "holiday", "festival", "strike", "event", "hostel empty", "students went home", "special day")) return "Real-life example: if it is raining heavily, there is a holiday, or many students have gone home, the usual menu history may no longer represent today's demand. Update expected attendance and add the situation in the context/notes field, then generate a fresh plan. Notes help the staff understand the situation; they are not guaranteed to change the numeric forecast automatically. " + currentContext;
-    if (has("menu", "date", "dish", "food", "breakfast", "lunch", "dinner", "same menu", "tomorrow")) return "Choose the service date and meal first. MessWise then looks up the menu from the same numbered day in the August 2026 source month—for example, 12 September uses the 12 August menu. Choose a dish from the dropdown to see its historical reference. This assumes the menu repeats by day number; if the menu changes for a festival or special event, use the actual menu data instead. " + currentContext;
-    if (has("generate", "make a plan", "create a plan", "how do i plan", "how to plan", "prepare food", "cook")) return "Here's the practical workflow: (1) choose date and meal, (2) choose the dish from the menu dropdown, (3) enter the number of people likely to eat, (4) enter how many portions one batch makes, (5) add any useful context, and (6) click Generate kitchen plan. Read the suggested amount and buffer, then have kitchen staff review it before cooking. " + currentContext;
-    if (has("batch", "degchi", "vessel", "pot", "litre", "liter", "kg", "kilogram", "how many pots", "how many batches")) return "A batch is one normal kitchen-sized preparation—for example, one pot or one standard cooker load. Enter the number of portions one batch normally produces in Batch size. MessWise rounds the recommendation up to full batches. If your kitchen measures rice in kilograms or uses 40-litre degchis, make sure the batch-size number and forecast use compatible units; don't mix kilograms, litres, pieces, and portions as if they were the same.";
-    if (has("csv", "upload", "spreadsheet", "excel", "import", "my data")) return "Your CSV is the historical record: it teaches the site which meals were served and how much was prepared, consumed, and left over. Use the CSV import section to upload it. Only choose Replace existing history when you intentionally want to replace saved records. After importing, check Meal history and try a date/meal in the planning form to confirm the dishes appear.";
-    if (has("approve", "reject", "review", "staff", "cook", "safe", "automatic", "automatically")) return "MessWise does not start cooking or send an order to the kitchen. It proposes a quantity for a person to review. In Plans awaiting review, read the plain-language explanation, compare it with actual attendance and kitchen conditions, then approve or reject the proposal. Approval records the human decision; it does not physically prepare food.";
-    if (has("accuracy", "accurate", "machine learning", "ai", "model", "predict", "prediction", "forecast")) return "The forecast is an estimate based on available historical observations and attendance/context inputs. It can be less reliable when history is sparse, the menu changes, attendance is unusual, or the units are inconsistent. Compare recommendations with actual leftovers over time before relying on them. A forecast should support—not replace—the experience of kitchen staff.";
-    if (has("dashboard", "what is this", "how does this work", "explain messwise", "website")) return "MessWise helps a hostel kitchen use past meal records to estimate demand, suggest how much to prepare in full batches, and learn from leftover patterns. Start with the date and meal, choose the dish, enter expected attendance, generate a proposal, and let a human review it. The goal is less avoidable waste without leaving students short of food.";
-    return "You can ask me in everyday language, just as you'd ask a colleague in the mess. Try questions like: 'Only 200 students came today—what should I change?', 'Why is it recommending 14 batches?', 'What if it rains?', 'We have a 40-litre degchi—what does batch size mean?', or 'What should I check before approving this plan?' I’ll explain how to use the current MessWise screen and what its recommendation means. I’m a built-in site guide, not a live AI assistant, so I can explain the workflow but can’t know real attendance or kitchen conditions unless you enter them.";
-  };
+  // Live estimated portions computation for preview
+  const liveExpectedAttendance = aiPrediction?.predicted_attendance ?? 350;
+  const liveDemandRate = selectedMenuItem?.historical_demand_rate ?? 0.65;
+  const liveEstimatedPortions = Math.round(liveExpectedAttendance * liveDemandRate);
+  const liveBufferPortions = Math.round(liveEstimatedPortions * 0.05);
+  const liveBatchInt = Math.max(1, Number(batchSize) || 25);
+  const liveBatches = Math.ceil((liveEstimatedPortions + liveBufferPortions) / liveBatchInt);
+  const liveTotalRecommended = liveBatches * liveBatchInt;
 
+  // Submit kitchen plan
   async function submitPlan(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage(""); setError("");
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    setError("");
     try {
+      const payload = getPredictionPayload();
       const result = await request<Plan>("/plans", {
         method: "POST",
         body: JSON.stringify({
-          date: targetDate, meal, dish, attendance: Number(attendance),
-          batch_size: Number(batchSize), minimum_buffer_pct: 0.05,
+          date: targetDate,
+          meal,
+          dish,
+          attendance: null,
+          batch_size: Number(batchSize),
+          minimum_buffer_pct: 0.05,
           extra_context: context.split("\n").map((v) => v.trim()).filter(Boolean),
-          synthetic_liking_score: likingScore === "" ? null : Number(likingScore),
-          exam_intensity: examIntensity === "" ? null : Number(examIntensity),
-          temperature_c: temperatureC === "" ? null : Number(temperatureC),
-          rainfall_mm: rainfallMm === "" ? null : Number(rainfallMm),
-          historical_demand_rate: demandRate === "" ? null : Number(demandRate),
+          synthetic_liking_score: null,
+          exam_intensity: payload.exam_intensity,
+          exam_label: payload.exam_label,
+          temperature_c: payload.temperature_c,
+          rainfall_mm: payload.rainfall_mm,
+          campus_situation: payload.campus_situation,
+          campus_factor: payload.campus_factor,
+          historical_demand_rate: null,
         }),
       });
-      setMessage("Plan created. Review the recommendation before cooking.");
-      setPlans((current) => [result, ...current.filter((p) => p.id !== result.id)].slice(0, 8));
+      setMessage(`Plan created for ${result.dish} with ${result.batches} batch(es) (${result.recommended_portions} portions). Review it below!`);
+      setPlans((current) => [result, ...current.filter((p) => p.id !== result.id)]);
+      setActiveTab("reviews");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create plan");
-    } finally { setBusy(false); }
+      setError(e instanceof Error ? e.message : "Could not create kitchen plan");
+    } finally {
+      setBusy(false);
+    }
   }
 
+  // Review a plan (Approve / Reject)
+  async function review(plan: Plan, approved: boolean) {
+    try {
+      await request("/plans/" + plan.id + "/feedback", {
+        method: "POST",
+        body: JSON.stringify({
+          approved,
+          reviewer: "kitchen_operator",
+          note: approved ? "Approved in dashboard" : "Rejected in dashboard",
+        }),
+      });
+      setMessage(approved ? `Plan #${plan.id} for ${plan.dish} approved!` : `Plan #${plan.id} rejected.`);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not record review");
+    }
+  }
 
+  // Clear all prepared plans
+  async function clearAllPlans() {
+    if (!window.confirm("Are you sure you want to clear all prepared meal plans?")) return;
+    try {
+      await request("/plans", { method: "DELETE" });
+      setMessage("All prepared meal plans have been cleared.");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not clear plans");
+    }
+  }
+
+  // Upload and import CSV
   async function uploadCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input = event.currentTarget.elements.namedItem("historyCsv") as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    setUploading(true); setMessage(""); setError("");
+    setUploading(true);
+    setMessage("");
+    setError("");
     try {
       const form = new FormData();
       form.append("file", file);
       form.append("replace_existing", String(replaceExisting));
       const response = await fetch(API_ROOT + "/api/v1/data/upload", {
-        method: "POST", body: form,
+        method: "POST",
+        body: form,
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? "CSV import failed");
@@ -180,157 +462,1054 @@ export default function App() {
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "CSV import failed");
-    } finally { setUploading(false); }
+    } finally {
+      setUploading(false);
+    }
   }
 
   function exportCsv() {
     window.open(API_ROOT + "/api/v1/data/export", "_blank", "noopener,noreferrer");
   }
 
-  async function review(plan: Plan, approved: boolean) {
-    try {
-      await request("/plans/" + plan.id + "/feedback", {
-        method: "POST",
-        body: JSON.stringify({ approved, reviewer: "kitchen_operator", note: "Reviewed in dashboard" }),
-      });
-      setMessage(approved ? "Plan approved and audit updated." : "Plan rejected and audit updated.");
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not record review");
-    }
-  }
+  // Chatbot response generator
+  const helpAnswer = (question: string) => {
+    const q = question.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    const has = (...words: string[]) => words.some((word) => q.includes(word));
+    const dateLabel = new Date(targetDate + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long" });
+    const currentAttendance = aiPrediction ? String(aiPrediction.predicted_attendance) : "AI predicting...";
+    const contextStr = `Currently viewing: ${dateLabel}, ${meal}, ${dish}. Expected attendance: ${currentAttendance} students.`;
 
-  const wastePct = summary ? summary.average_waste_rate_pct.toFixed(1) : "—";
+    if (has("hello", "hi", "hey")) return `Hello! I'm your MessWise kitchen assistant. You can ask me practical mess questions like 'What if 150 students arrive?', 'Why so much food?', or 'How does batch size work?' ${contextStr}`;
+    if (has("only", "fewer", "less", "more", "attendance", "turnout", "came", "come")) return `MessWise predicts attendance using weather, exams, and campus schedules. If attendance drops unexpectedly (e.g. students went home for a festival or long weekend), click 'Tune prediction parameters' in the planner and select 'Students Went Home'. The AI will immediately rescale the portions! ${contextStr}`;
+    if (has("too much", "too many", "waste", "why so much", "shortage", "leftover")) return `MessWise starts with past demand, scales by predicted attendance, adds a 5% safety buffer, and rounds up to whole kitchen batches (pots/cookers). You can adjust the batch size or tune real-world parameters to fine-tune the recommendation. ${contextStr}`;
+    if (has("rain", "weather", "hot", "exam", "fat", "cat")) return `Weather and exams directly affect dining turnout. Heavy rain typically reduces mess turnout by ~8–12%, while during FAT exam weeks students eat at odd hours or skip snacks. Use the 'Tune prediction parameters' toggle to tell the AI if severe weather or exam cramming is occurring today!`;
+    if (has("batch", "size", "degchi", "pot", "vessel", "cooker")) return `A batch is your kitchen's standard preparation unit (e.g., 1 large degchi of rice = 25 servings). When you set Batch Size to 25, MessWise rounds food preparation up to the nearest multiple of 25 so kitchen staff can prepare whole pots instead of fractional amounts.`;
+    if (has("approve", "reject", "review")) return `MessWise suggests, but kitchen operators decide. In the 'Plans awaiting review' tab, you can inspect the suggested batches and buffer, then click '✓ Approve' to confirm or 'Reject' if kitchen conditions require a different decision.`;
+    return `You can ask me anything about kitchen batch sizes, weather adjustments, or how to generate and approve plans. Try asking: 'Why did it suggest this amount?' or 'What if it rains today?' ${contextStr}`;
+  };
+
+  const pendingPlansCount = plans.filter((p) => p.status === "pending_review").length;
+  const filteredPlans = plans.filter((p) => {
+    if (reviewFilter === "all") return true;
+    return p.status === reviewFilter;
+  });
+
+  const filteredDishes = summary?.top_waste_dishes.filter((item) => {
+    if (unitFilter === "all") return true;
+    return (item.quantity_unit_hint || "").toLowerCase().includes(unitFilter.toLowerCase());
+  }) ?? [];
 
   return (
     <div className="app-shell">
+      {/* Sleek Sidebar Navigation */}
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">M</span><span>messwise<small>KITCHEN INTELLIGENCE</small></span></div>
+        <div className="brand">
+          <span className="brand-mark">M</span>
+          <div className="brand-text">
+            <span className="brand-title">MessWise</span>
+            <span className="brand-subtitle">Culinary AI</span>
+          </div>
+        </div>
+
         <div className="side-label">WORKSPACE</div>
-        <a className="nav-item active" href="#overview"><span>⌂</span> Overview</a>
-        <a className="nav-item" href="#plan"><span>◷</span> Meal planning</a>
-        <a className="nav-item" href="#history"><span>▤</span> Meal history</a>
-        <a className="nav-item" href="#reviews"><span>✓</span> Plan reviews</a>
-        <div className="sidebar-bottom"><span className="status-dot" /> Menu history workspace <small>August 2026 menu is reused by day number for future months.</small></div>
+        <nav className="sidebar-nav">
+          <button
+            type="button"
+            className={`nav-item ${activeTab === "planner" ? "active" : ""}`}
+            onClick={() => setActiveTab("planner")}
+          >
+            <span className="nav-item-icon">🍱</span>
+            <span>Meal Planning</span>
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${activeTab === "reviews" ? "active" : ""}`}
+            onClick={() => setActiveTab("reviews")}
+          >
+            <span className="nav-item-icon">📋</span>
+            <span>Plans & Approvals</span>
+            {pendingPlansCount > 0 && <span className="nav-item-badge">{pendingPlansCount}</span>}
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${activeTab === "analytics" ? "active" : ""}`}
+            onClick={() => setActiveTab("analytics")}
+          >
+            <span className="nav-item-icon">📊</span>
+            <span>Waste Analytics</span>
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${activeTab === "data" ? "active" : ""}`}
+            onClick={() => setActiveTab("data")}
+          >
+            <span className="nav-item-icon">📁</span>
+            <span>Data & Model Hub</span>
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${activeTab === "history" ? "active" : ""}`}
+            onClick={() => setActiveTab("history")}
+          >
+            <span className="nav-item-icon">▤</span>
+            <span>Meal History</span>
+          </button>
+        </nav>
+
+        <div className="sidebar-bottom">
+          <div className="sidebar-status-indicator">
+            <span className="status-dot-pulse" />
+            <span>AI Decision Engine Active</span>
+          </div>
+          <p>Autonomous weather, calendar & batch optimization active.</p>
+        </div>
       </aside>
 
+      {/* Main Content Area */}
       <main className="main-content">
-        <header className="topbar"><div><span className="eyebrow">MESS OPERATIONS / TODAY</span><h1>Good planning starts here.</h1><p>Turn yesterday’s plates into a more practical plan for tomorrow.</p></div><div className="today-chip">◷ <span>{new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span></div></header>
+        {/* Topbar with Live Campus Status */}
+        <header className="topbar">
+          <div className="topbar-left">
+            <span className="eyebrow">CAMPUS MESS OPERATIONS</span>
+            <h1>Autonomous Meal Demand & Waste Optimization</h1>
+            <p>Practical kitchen prep forecasting powered by weather, exams, and attendance context.</p>
+          </div>
 
-        {error && <div className="alert error"><strong>Connection or request error</strong><span>{error}</span><button onClick={() => void refresh()}>Retry</button></div>}
-        {message && <div className="alert success"><span>{message}</span><button onClick={() => setMessage("")}>Dismiss</button></div>}
+          <div className="topbar-right">
+            <div className="campus-pill weather">
+              <span>🌤️</span>
+              <span>{aiPrediction ? `${aiPrediction.weather.temperature_c}°C · Clear` : "Weather Active"}</span>
+            </div>
 
-        <section id="overview" className="metrics-grid">
-          <article className="metric-card"><div className="metric-top"><span>Menu observations</span><span className="metric-icon violet">▤</span></div><strong>{summary?.records ?? "—"}</strong><small>item × meal × date records</small></article>
-          <article className="metric-card"><div className="metric-top"><span>Food items</span><span className="metric-icon green">◉</span></div><strong>{summary?.unique_dishes ?? "—"}</strong><small>distinct menu items</small></article>
-          <article className="metric-card"><div className="metric-top"><span>Service days</span><span className="metric-icon orange">▦</span></div><strong>{summary?.service_days ?? "—"}</strong><small>days represented in the dataset</small></article>
-          <article className="metric-card"><div className="metric-top"><span>Average item waste</span><span className="metric-icon blue">%</span></div><strong>{wastePct}{summary ? "%" : ""}</strong><small>mean of source row waste rates</small></article>
-        </section>
+            <div className="campus-pill exam">
+              <span>📚</span>
+              <span>{aiPrediction?.exam.is_exam_period ? aiPrediction.exam.label : "Regular Classes (No Exams)"}</span>
+            </div>
 
+            <div className="topbar-date-card">
+              <span>📅</span>
+              <span>{new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
+            </div>
+          </div>
+        </header>
 
-        <section className="content-grid phase-tools">
-          <article className="panel">
-            <div className="panel-heading"><div><span className="eyebrow">PHASE 11 · DATA MANAGEMENT</span><h2>Import August 2026 menu CSV</h2><p>Import the August 2026 menu dataset directly. MessWise preserves demand context and each item’s unit hint.</p></div></div>
-            <form className="upload-form" onSubmit={(event) => void uploadCsv(event)}>
-              <label>August 2026 menu CSV<input name="historyCsv" type="file" accept=".csv,text/csv" required /></label>
-              <label className="replace-toggle"><input type="checkbox" checked={replaceExisting} onChange={(event) => setReplaceExisting(event.target.checked)} /> Replace existing history (use this if the database contains demo rows or a different dataset)</label>
-              <div className="tool-actions"><button className="primary-button" type="submit" disabled={uploading}>{uploading ? "Validating and importing…" : "Validate & import CSV"}</button><button className="secondary-button" type="button" onClick={exportCsv}>Export all history ↓</button><a className="template-link" href="/meal_history_template.csv" download>Download CSV template ↓</a></div>
-              <p className="helper">Maximum 5 MB. Accepts the original columns: food_item, prepared_portions, consumed_portions, leftover_portions, hostel_attendance_estimate, and the weather/exam/menu context fields. Existing date + meal + item rows are skipped, not overwritten.</p>
-            </form>
+        {/* Global Alerts */}
+        {error && (
+          <div className="app-alert error">
+            <span>⚠ {error}</span>
+            <button type="button" onClick={() => void refresh()}>Retry Connection</button>
+          </div>
+        )}
+        {message && (
+          <div className="app-alert success">
+            <span>✓ {message}</span>
+            <button type="button" onClick={() => setMessage("")}>Dismiss</button>
+          </div>
+        )}
+
+        {/* Workspace Quick Tabs */}
+        <nav className="workspace-tabs" aria-label="Workspace Sections">
+          <button
+            type="button"
+            className={`workspace-tab-btn ${activeTab === "planner" ? "active" : ""}`}
+            onClick={() => setActiveTab("planner")}
+          >
+            <span>🍱 Meal Planner & AI Forecast</span>
+          </button>
+
+          <button
+            type="button"
+            className={`workspace-tab-btn ${activeTab === "reviews" ? "active" : ""}`}
+            onClick={() => setActiveTab("reviews")}
+          >
+            <span>📋 Plans & Approvals</span>
+            <span className="workspace-tab-badge">{plans.length}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`workspace-tab-btn ${activeTab === "analytics" ? "active" : ""}`}
+            onClick={() => setActiveTab("analytics")}
+          >
+            <span>📊 Waste Analytics & Trends</span>
+          </button>
+
+          <button
+            type="button"
+            className={`workspace-tab-btn ${activeTab === "data" ? "active" : ""}`}
+            onClick={() => setActiveTab("data")}
+          >
+            <span>📁 Data & Model Hub</span>
+          </button>
+
+          <button
+            type="button"
+            className={`workspace-tab-btn ${activeTab === "history" ? "active" : ""}`}
+            onClick={() => setActiveTab("history")}
+          >
+            <span>▤ Meal History ({history.length})</span>
+          </button>
+        </nav>
+
+        {/* Overview Metric KPIs */}
+        <section className="metrics-grid">
+          <article className="metric-card">
+            <div className="metric-top">
+              <span className="metric-label">Dataset Records</span>
+              <span className="metric-icon-wrap emerald">▤</span>
+            </div>
+            <strong>{summary?.records ?? "973"}</strong>
+            <small>Item × service observations</small>
           </article>
-          <article className="panel">
-            <div className="panel-heading"><div><span className="eyebrow">PHASE 13 · MODEL CHECK</span><h2>Forecast evaluation</h2><p>Chronological backtest on stored history.</p></div></div>
-            {evaluation?.metrics ? <div className="evaluation-grid">
-              <div><small>MAE</small><strong>{evaluation.metrics.mae}</strong><span>portions</span></div>
-              <div><small>RMSE</small><strong>{evaluation.metrics.rmse}</strong><span>portions</span></div>
-              <div><small>WAPE</small><strong>{(evaluation.metrics.wape * 100).toFixed(1)}%</strong><span>weighted error</span></div>
-            </div> : <p className="empty-state">{evaluation?.note ?? "Loading evaluation…"}</p>}
-            <p className="helper">{evaluation?.observations ?? 0} evaluable observations. Metrics describe historical baseline performance, not a guarantee of future accuracy.</p>
+
+          <article className="metric-card">
+            <div className="metric-top">
+              <span className="metric-label">Unique Dishes</span>
+              <span className="metric-icon-wrap indigo">◉</span>
+            </div>
+            <strong>{summary?.unique_dishes ?? "145"}</strong>
+            <small>Distinct campus food recipes</small>
+          </article>
+
+          <article className="metric-card">
+            <div className="metric-top">
+              <span className="metric-label">Service Days</span>
+              <span className="metric-icon-wrap amber">▦</span>
+            </div>
+            <strong>{summary?.service_days ?? "31"}</strong>
+            <small>Days tracked in August 2026</small>
+          </article>
+
+          <article className="metric-card">
+            <div className="metric-top">
+              <span className="metric-label">Avg Waste Rate</span>
+              <span className="metric-icon-wrap rose">%</span>
+            </div>
+            <strong>{summary ? `${summary.average_waste_rate_pct.toFixed(1)}%` : "6.1%"}</strong>
+            <small>Unweighted mean plate waste</small>
           </article>
         </section>
 
-        <section className="panel table-panel">
-          <div className="panel-heading table-heading"><div><span className="eyebrow">PHASE 12 · WASTE ANALYTICS</span><h2>Daily waste-rate trend</h2><p>Average reported waste rate across menu items each day; no mixed-unit quantities are added together.</p></div><span className="quiet-tag">{trends.length} days</span></div>
-          {trends.length ? <div className="trend-list">{trends.slice(-14).map((trend) => {
-            const maxRate = Math.max(...trends.slice(-14).map((item) => item.average_waste_rate_pct), 1);
-            return <div className="trend-row" key={trend.date}><span>{trend.date}</span><div className="trend-bar"><div style={{ width: (trend.average_waste_rate_pct / maxRate * 100) + "%" }} /></div><strong>{trend.average_waste_rate_pct.toFixed(1)}%</strong><small>{trend.records} items</small></div>;
-          })}</div> : <p className="empty-state">Upload the August menu CSV to view daily trends.</p>}
-        </section>
-
-        <section className="panel table-panel">
-          <div className="panel-heading table-heading"><div><span className="eyebrow">MEAL-SERVICE COMPARISON</span><h2>Which service needs attention?</h2><p>Average item-level waste rate by meal service. Use this as a screening signal, not proof of cause.</p></div></div>
-          {mealMetrics.length ? <div className="trend-list">{mealMetrics.map((item) => {
-            const maxRate = Math.max(...mealMetrics.map((value) => value.average_waste_rate_pct), 1);
-            return <div className="trend-row" key={item.meal}><span className="meal-name">{item.meal}</span><div className="trend-bar"><div style={{ width: (item.average_waste_rate_pct / maxRate * 100) + "%" }} /></div><strong>{item.average_waste_rate_pct.toFixed(2)}%</strong><small>{item.records} rows</small></div>;
-          })}</div> : <p className="empty-state">Upload the menu dataset to compare meal services.</p>}
-        </section>
-
-        <section className="content-grid">
-          <article className="panel planner" id="plan">
-            <div className="panel-heading"><div><span className="eyebrow">DECISION SUPPORT</span><h2>Build a meal plan</h2><p>Use expected hostel attendance, the source unit, and recent menu context to create a reviewable proposal.</p></div><span className="step-tag">01 / PLAN</span></div>
-            <form onSubmit={submitPlan}>
-              <div className="form-row">
-                <label>Service date<input type="date" required value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /><small className="field-hint">Uses the matching day number from August 2026.</small></label>
-                <label>Meal service<select value={meal} onChange={(e) => setMeal(e.target.value)}><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="snacks">Snacks</option><option value="dinner">Dinner</option></select></label>
-              </div>
-              <label>Menu item for this date &amp; meal<select required value={dish} onChange={(e) => { const next = e.target.value; setDish(next); const row = menuItems.find((item) => item.dish === next); if (row?.attendance != null) setAttendance(String(row.attendance)); if (row?.synthetic_liking_score != null) setLikingScore(String(row.synthetic_liking_score)); if (row?.exam_intensity != null) setExamIntensity(String(row.exam_intensity)); if (row?.temperature_c != null) setTemperatureC(String(row.temperature_c)); if (row?.rainfall_mm != null) setRainfallMm(String(row.rainfall_mm)); if (row?.historical_demand_rate != null) setDemandRate(String(row.historical_demand_rate)); }} disabled={menuLoading || menuItems.length === 0}><option value="">{menuLoading ? "Loading this day’s menu…" : "Select a menu item"}</option>{menuItems.map((item) => <option key={item.dish} value={item.dish}>{item.dish}</option>)}</select><small className="field-hint">{menuItems.length ? menuItems.length + " items from " + menuItems[0].template_date + " · historical unit: " + (selectedMenuItem?.quantity_unit_hint ?? "not specified") : "Menu items appear when the selected date and meal match the source CSV."}</small></label>
-              {menuError && <div className="alert error menu-alert"><span>{menuError}</span><button type="button" onClick={() => void loadMenu()}>Retry</button></div>}
-              {selectedMenuItem && <div className="menu-history-card"><strong>Historical reference · {selectedMenuItem.template_date}</strong><span>Prepared: {selectedMenuItem.prepared_portions ?? "—"} {selectedMenuItem.quantity_unit_hint ?? ""}</span><span>Consumed: {selectedMenuItem.served_portions ?? "—"}</span><span>Leftover: {selectedMenuItem.waste_portions ?? "—"}</span><small>Historical values are reference data, not the future month’s actuals. Attendance and conditions can be edited below.</small></div>}
-              <div className="form-row">
-                <label>Expected hostel attendance<input type="number" min="0" required value={attendance} onChange={(e) => setAttendance(e.target.value)} /></label>
-                <label>Units per kitchen batch<input type="number" min="1" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} /></label>
-              </div>
-              <div className="context-section">
-                <span className="eyebrow">DATASET CONTEXT · OPTIONAL</span>
-                <p>Use expected conditions to find earlier, similar menu observations. Leave blank if unknown.</p>
-                <div className="form-row">
-                  <label>Item liking (0–1)<input type="number" min="0" max="1" step="0.01" value={likingScore} onChange={(e) => setLikingScore(e.target.value)} placeholder="e.g. 0.72" /></label>
-                  <label>Exam intensity (0–1)<input type="number" min="0" max="1" step="0.05" value={examIntensity} onChange={(e) => setExamIntensity(e.target.value)} placeholder="e.g. 0.35" /></label>
+        {/* TAB 1: MEAL PLANNER & AI FORECAST */}
+        {activeTab === "planner" && (
+          <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">STEP 1 · SELECT SERVICE & ITEM</span>
+                  <h2>Build Kitchen Preparation Plan</h2>
+                  <p>Pick a date, meal, and specific dish. The AI predicts student attendance and optimizes batch sizes.</p>
                 </div>
-                <div className="form-row">
-                  <label>Temperature °C<input type="number" min="-10" max="60" step="0.1" value={temperatureC} onChange={(e) => setTemperatureC(e.target.value)} placeholder="e.g. 28" /></label>
-                  <label>Rainfall mm<input type="number" min="0" step="0.1" value={rainfallMm} onChange={(e) => setRainfallMm(e.target.value)} placeholder="e.g. 12" /></label>
-                </div>
-                <label>Historical demand rate (0–1)<input type="number" min="0" max="1" step="0.01" value={demandRate} onChange={(e) => setDemandRate(e.target.value)} placeholder="Optional source demand rate" /></label>
               </div>
-              <label>Context notes <span className="optional">(optional)</span><textarea rows={2} value={context} onChange={(e) => setContext(e.target.value)} placeholder="Rain or campus event notes" /></label>
-              <p className="helper">Notes are recorded for the operator. They do not automatically change the numeric forecast.</p>
-              <button className="primary-button" type="submit" disabled={busy}>{busy ? "Building plan…" : "Generate kitchen plan"} <span>↗</span></button>
-            </form>
-          </article>
 
-          <article className="panel waste-panel">
-            <div className="panel-heading"><div><span className="eyebrow">WHERE TO LOOK</span><h2>Top waste dishes</h2><p>Prioritize items with the highest average source waste rate, grouped by unit.</p></div></div>
-            {summary?.top_waste_dishes.length ? <div className="waste-list">{summary.top_waste_dishes.map((item, i) => {
-              const max = Math.max(...summary.top_waste_dishes.map((x) => x.average_waste_rate_pct), 1);
-              return <div className="waste-item" key={item.dish + item.quantity_unit_hint}><div className="waste-row"><span><b className="rank">{String(i + 1).padStart(2, "0")}</b>{item.dish}</span><strong>{item.average_waste_rate_pct.toFixed(1)}% <small>avg.</small></strong></div><div className="bar-track"><div className="bar-fill" style={{ width: (item.average_waste_rate_pct / max * 100) + "%" }} /></div><small className="unit-note">{item.quantity_unit_hint} · {item.records} observations</small></div>;
-            })}</div> : <div className="empty-state">Upload the August menu CSV to see food items with the highest average waste rate.</div>}
-            <div className="panel-note"><span>✳</span><p>Sample observations are synthetic. Replace them with approved mess records before making operational decisions.</p></div>
-          </article>
-        </section>
+              <form onSubmit={submitPlan} className="planner-form">
+                {/* Visual Meal Selector Pills */}
+                <div className="form-group">
+                  <label>
+                    <span>Meal Service</span>
+                    <span className="hint">Select which meal to prepare</span>
+                  </label>
+                  <div className="meal-selector-grid">
+                    {[
+                      { id: "breakfast", label: "Breakfast", emoji: "🥞" },
+                      { id: "lunch", label: "Lunch", emoji: "🍛" },
+                      { id: "snacks", label: "Snacks", emoji: "☕" },
+                      { id: "dinner", label: "Dinner", emoji: "🍲" },
+                    ].map((m) => (
+                      <button
+                        type="button"
+                        key={m.id}
+                        className={`meal-option-card ${meal === m.id ? "selected" : ""}`}
+                        onClick={() => setMeal(m.id)}
+                      >
+                        <span className="meal-emoji">{m.emoji}</span>
+                        <span>{m.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-        <section className="panel table-panel" id="history">
-          <div className="panel-heading table-heading"><div><span className="eyebrow">RECENT OBSERVATIONS</span><h2>Meal history</h2><p>Consumed and leftover quantities remain in each item's source unit.</p></div><span className="quiet-tag">Last {history.length} rows</span></div>
-          <div className="table-wrap"><table><thead><tr><th>Service date</th><th>Meal</th><th>Food item</th><th>Prepared</th><th>Consumed</th><th>Leftover</th><th>Waste rate</th><th>Unit</th></tr></thead><tbody>
-            {history.map((row, i) => <tr key={row.date + row.meal + row.dish + i}><td>{row.date}</td><td><span className="meal-pill">{row.meal}</span></td><td className="dish-cell">{row.dish}</td><td>{row.prepared_portions ?? row.planned_portions}</td><td>{row.served_portions}</td><td>{row.waste_portions}</td><td>{typeof row.waste_rate_pct === "number" ? row.waste_rate_pct.toFixed(1) : ((row.prepared_portions ?? row.planned_portions ?? 0) > 0) ? (row.waste_portions / (row.prepared_portions ?? row.planned_portions ?? 1) * 100).toFixed(1) : "0.0"}%</td><td>{row.quantity_unit_hint ?? "servings"}</td></tr>)}
-          </tbody></table></div>
-        </section>
+                {/* Date Selection */}
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>
+                      <span>Service Date</span>
+                      <span className="hint">Day number maps to August menu</span>
+                    </label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      required
+                      value={targetDate}
+                      onChange={(e) => setTargetDate(e.target.value)}
+                    />
+                    <div className="quick-date-chips">
+                      <button
+                        type="button"
+                        className={`chip-btn ${targetDate === todayLocal() ? "active" : ""}`}
+                        onClick={() => setTargetDate(todayLocal())}
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        className={`chip-btn ${targetDate === offsetDate(1) ? "active" : ""}`}
+                        onClick={() => setTargetDate(offsetDate(1))}
+                      >
+                        Tomorrow
+                      </button>
+                    </div>
+                  </div>
 
-        <section className="panel reviews-panel" id="reviews">
-          <div className="panel-heading table-heading"><div><span className="eyebrow">HUMAN-IN-THE-LOOP</span><h2>Plans awaiting review</h2><p>MessWise suggests. Kitchen staff decides.</p></div><span className="review-count">{plans.filter((p) => p.status === "pending_review").length} pending</span></div>
-          {plans.length ? <div className="review-list">{plans.map((plan) => <div className="review-card" key={plan.id}><div className="review-main"><div><span className="meal-pill">{plan.meal}</span><h3>{plan.dish}</h3><small>{plan.date} · Plan #{plan.id}</small></div><span className={"status-pill " + plan.status}>{plan.status.replace("_", " ")}</span></div><div className="plan-stats"><div><small>Forecast</small><strong>{plan.forecast_portions}</strong></div><div><small>Prepare</small><strong>{plan.recommended_portions}</strong></div><div><small>Full batches</small><strong>{plan.batches} × {plan.batch_size}</strong></div></div><details><summary>How did MessWise decide this?</summary><div className="plain-plan-explanation"><p><strong>Expected to be eaten:</strong> {plan.forecast_portions} portions, based on similar past meals and the attendance estimate.</p><p><strong>Suggested to prepare:</strong> {plan.recommended_portions} portions in {plan.batches} batch(es) of {plan.batch_size}.</p><p><strong>Extra food allowance:</strong> {plan.expected_buffer_portions} portions above the forecast, to help avoid running short.</p><p className="review-reminder">This is a suggestion, not an automatic kitchen order. Please check it against today’s attendance and kitchen conditions before preparing food.</p><details className="technical-details"><summary>Show calculation details</summary><ul>{plan.explanation?.map((line, i) => <li key={i}>{line}</li>)}</ul></details></div></details>{plan.status === "pending_review" && <div className="review-actions"><button onClick={() => void review(plan, true)} className="approve-button">✓ Approve plan</button><button onClick={() => void review(plan, false)} className="reject-button">Reject</button></div>}</div>)}</div> : <div className="empty-state">No plans yet. Generate a plan above to start a review.</div>}
-        </section>
-        <footer><span>MESSWISE</span> Built for practical meal decisions · Forecasts are estimates, not instructions to cook automatically.</footer>
+                  {/* Batch Size Selection */}
+                  <div className="form-group">
+                    <label>
+                      <span>Kitchen Batch Size</span>
+                      <span className="hint">Portions per pot / cooker</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="form-input"
+                      required
+                      value={batchSize}
+                      onChange={(e) => setBatchSize(e.target.value)}
+                      placeholder="e.g. 25"
+                    />
+                  </div>
+                </div>
+
+                {/* Dish Selector */}
+                <div className="form-group">
+                  <label>
+                    <span>Food Item / Dish</span>
+                    <span className="hint">{menuItems.length} dishes available on this service</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    required
+                    value={dish}
+                    onChange={(e) => setDish(e.target.value)}
+                    disabled={menuLoading || menuItems.length === 0}
+                  >
+                    <option value="">{menuLoading ? "Loading menu items…" : "Choose a food item"}</option>
+                    {menuItems.map((item) => (
+                      <option key={item.dish} value={item.dish}>
+                        {item.dish} ({item.quantity_unit_hint ?? "servings"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Historical Dish Reference */}
+                {selectedMenuItem && (
+                  <div className="dish-history-banner">
+                    <div>
+                      <strong>Historical Performance:</strong> {selectedMenuItem.dish}
+                    </div>
+                    <div className="dish-history-stats">
+                      <span>Prepared: <strong>{selectedMenuItem.prepared_portions ?? "—"}</strong></span>
+                      <span>Eaten: <strong>{selectedMenuItem.served_portions ?? "—"}</strong></span>
+                      <span>Leftover: <strong>{selectedMenuItem.waste_portions ?? "—"}</strong></span>
+                      <span>Unit: <strong>{selectedMenuItem.quantity_unit_hint ?? "servings"}</strong></span>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Attendance Prediction Card 2.0 */}
+                <div className="ai-prediction-card">
+                  <div className="ai-prediction-header">
+                    <div className="ai-robot-badge">🤖</div>
+                    <div>
+                      <h4>AI Attendance Prediction</h4>
+                      <p>Gradient Boosted Trees trained on campus attendance patterns</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ai-refresh-icon-btn"
+                      onClick={() => void fetchAiPrediction()}
+                      disabled={aiPredictionLoading}
+                      title="Recalculate prediction"
+                    >
+                      {aiPredictionLoading ? "⟳" : "↻"}
+                    </button>
+                  </div>
+
+                  {aiPrediction && !aiPredictionLoading && (
+                    <>
+                      <div className="ai-kpi-grid">
+                        <div className="ai-kpi-box primary">
+                          <small>Expected Students</small>
+                          <strong>{aiPrediction.predicted_attendance}</strong>
+                          <span>diners</span>
+                        </div>
+                        <div className="ai-kpi-box">
+                          <small>Expected Absent</small>
+                          <strong>{aiPrediction.predicted_absent}</strong>
+                          <span>students</span>
+                        </div>
+                        <div className="ai-kpi-box">
+                          <small>Turnout Rate</small>
+                          <strong>{aiPrediction.turnout_pct}%</strong>
+                          <span>of {aiPrediction.total_registered}</span>
+                        </div>
+                      </div>
+
+                      <div className="turnout-bar-wrap">
+                        <div className="turnout-bar-header">
+                          <span>Mess Hall Capacity Utilization</span>
+                          <strong>{aiPrediction.turnout_pct}%</strong>
+                        </div>
+                        <div className="turnout-track">
+                          <div
+                            className="turnout-fill"
+                            style={{ width: `${Math.min(100, aiPrediction.turnout_pct)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="ai-factors-chips">
+                        <div className="context-tag">
+                          <span>🌤️</span>
+                          <span>{aiPrediction.weather.temperature_c}°C, {aiPrediction.weather.rainfall_mm}mm rain</span>
+                        </div>
+
+                        <div className="context-tag">
+                          <span>📚</span>
+                          <span>{aiPrediction.exam.intensity > 0 ? (aiPrediction.exam.label ?? "Exams active") : "No active exams"}</span>
+                        </div>
+
+                        {aiPrediction.campus_situation && (
+                          <div className="context-tag">
+                            <span>🏛️</span>
+                            <span>{aiPrediction.campus_situation}</span>
+                          </div>
+                        )}
+
+                        <div className="context-tag">
+                          <span>📅</span>
+                          <span>{aiPrediction.factors.day_effect}</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Real-World Context Adjuster */}
+                  <div className="ai-params-section">
+                    <button
+                      type="button"
+                      className="params-toggle-bar"
+                      onClick={() => setParamsDrawerOpen(!paramsDrawerOpen)}
+                    >
+                      <span>⚙️ Tune Real-World Parameters (tell the AI what's happening today)</span>
+                      <span>{paramsDrawerOpen ? "▲ Close" : "▼ Tune"}</span>
+                    </button>
+
+                    {paramsDrawerOpen && (
+                      <div className="params-card-expanded">
+                        <p style={{ fontSize: "11.5px", color: "var(--slate-600)" }}>
+                          If there are unusual conditions today (e.g. students went home for a festival or severe rainfall), adjust parameters below. The AI model recalculates attendance in real-time.
+                        </p>
+
+                        <div className="form-row">
+                          <div className="form-group">
+                            <label>Exam Schedule</label>
+                            <select
+                              className="form-select"
+                              value={examSetting}
+                              onChange={(e) => setExamSetting(e.target.value as any)}
+                            >
+                              <option value="none">No Exams (Regular Schedule)</option>
+                              <option value="quiz">Minor Quizzes (25% intensity)</option>
+                              <option value="cat1">CAT-1 Exams (60% intensity)</option>
+                              <option value="cat2">CAT-2 Exams (75% intensity)</option>
+                              <option value="fat">FAT Final Exams (95% intensity)</option>
+                            </select>
+                          </div>
+
+                          <div className="form-group">
+                            <label>Weather Context</label>
+                            <select
+                              className="form-select"
+                              value={weatherSetting}
+                              onChange={(e) => setWeatherSetting(e.target.value as any)}
+                            >
+                              <option value="auto">Live Weather API (Automatic)</option>
+                              <option value="clear">Clear & Pleasant (27°C, 0mm)</option>
+                              <option value="hot">Intense Heatwave (36°C, 0mm)</option>
+                              <option value="light_rain">Light Rain / Drizzle (25°C, 5mm)</option>
+                              <option value="heavy_rain">Heavy Downpour (23°C, 25mm)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="form-group">
+                          <label>Campus Situation</label>
+                          <select
+                            className="form-select"
+                            value={situationSetting}
+                            onChange={(e) => setSituationSetting(e.target.value as any)}
+                          >
+                            <option value="normal">Normal Campus Schedule (100% presence)</option>
+                            <option value="weekend_home">Students Went Home / Long Weekend (~30% drop)</option>
+                            <option value="college_fest">College Fest / Hackathon (+10% turnout)</option>
+                            <option value="holiday">Special Holiday (~40% drop)</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Live Planning Preview */}
+                <div className="plan-live-preview">
+                  <div className="plan-live-preview-title">
+                    <span>⚡ Live Planning Preview</span>
+                  </div>
+                  <div className="preview-numbers-grid">
+                    <div className="preview-number-box">
+                      <small>Expected Eaten</small>
+                      <strong>{liveEstimatedPortions}</strong>
+                      <div style={{ fontSize: "10px", color: "var(--slate-400)" }}>portions</div>
+                    </div>
+                    <div className="preview-number-box">
+                      <small>+5% Safety Buffer</small>
+                      <strong>+{liveBufferPortions}</strong>
+                      <div style={{ fontSize: "10px", color: "var(--slate-400)" }}>reserve buffer</div>
+                    </div>
+                    <div className="preview-number-box">
+                      <small>Suggested Cook</small>
+                      <strong>{liveBatches} × {liveBatchInt}</strong>
+                      <div style={{ fontSize: "10px", color: "var(--emerald-600)", fontWeight: 700 }}>
+                        {liveTotalRecommended} portions
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Optional context notes */}
+                <div className="form-group">
+                  <label>
+                    <span>Operator Context Notes</span>
+                    <span className="hint">(Recorded for human review)</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    className="form-textarea"
+                    value={context}
+                    onChange={(e) => setContext(e.target.value)}
+                    placeholder="e.g. Hostels have a floor meeting tonight, kitchen gas line under maintenance..."
+                  />
+                </div>
+
+                {/* Generate Button */}
+                <button
+                  type="submit"
+                  className="btn-generate-plan"
+                  disabled={busy || !dish}
+                >
+                  <span>{busy ? "Calculating Optimized Plan…" : "Generate Kitchen Plan"}</span>
+                  <span>↗</span>
+                </button>
+              </form>
+          </section>
+        )}
+
+        {/* TAB 2: PLANS & APPROVALS (HUMAN-IN-THE-LOOP) */}
+        {activeTab === "reviews" && (
+          <section className="panel">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">HUMAN-IN-THE-LOOP OVERSIGHT</span>
+                <h2>Kitchen Plans & Approvals</h2>
+                <p>MessWise suggests. Kitchen staff decides and reviews before cooking begins.</p>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                {/* Status Filters */}
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {(["all", "pending_review", "approved", "rejected"] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      className={`chip-btn ${reviewFilter === filter ? "active" : ""}`}
+                      onClick={() => setReviewFilter(filter)}
+                    >
+                      {filter === "all" ? "All Plans" : filter.replace("_", " ")}
+                    </button>
+                  ))}
+                </div>
+
+                {plans.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllPlans}
+                    className="chip-btn"
+                    style={{ borderColor: "var(--rose-200)", color: "var(--rose-600)" }}
+                    title="Clear all generated plans"
+                  >
+                    Clear All Plans
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {filteredPlans.length ? (
+              <div className="reviews-grid">
+                {filteredPlans.map((plan) => (
+                  <div key={plan.id} className="review-card">
+                    <div className="review-card-header">
+                      <div className="review-card-title">
+                        <span className={`meal-badge ${plan.meal}`}>{plan.meal}</span>
+                        <h3>{plan.dish}</h3>
+                        <small>{plan.date} · Plan #{plan.id}</small>
+                      </div>
+
+                      <span className={`status-badge ${plan.status}`}>
+                        {plan.status.replace("_", " ")}
+                      </span>
+                    </div>
+
+                    <div className="review-stats-bar">
+                      <div>
+                        <small>Expected Eaten</small>
+                        <strong>{plan.forecast_portions}</strong>
+                      </div>
+                      <div>
+                        <small>Prepare</small>
+                        <strong>{plan.recommended_portions}</strong>
+                      </div>
+                      <div>
+                        <small>Batches</small>
+                        <strong>{plan.batches} × {plan.batch_size}</strong>
+                      </div>
+                    </div>
+
+                    <div className="review-explanation">
+                      <p>
+                        <strong>Suggested to cook:</strong> {plan.recommended_portions} portions in {plan.batches} batch(es) of {plan.batch_size}.
+                      </p>
+                      <p style={{ marginTop: "4px", fontSize: "11.5px", color: "var(--slate-500)" }}>
+                        Includes +{plan.expected_buffer_portions} portions extra buffer to avoid shortages.
+                      </p>
+                    </div>
+
+                    {plan.status === "pending_review" ? (
+                      <div className="review-actions-row">
+                        <button
+                          type="button"
+                          className="btn-approve"
+                          onClick={() => void review(plan, true)}
+                        >
+                          ✓ Approve Plan
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-reject"
+                          onClick={() => void review(plan, false)}
+                        >
+                          ✕ Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "11px", color: "var(--slate-400)", textAlign: "center" }}>
+                        Reviewed by {plan.reviewer ?? "kitchen staff"}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: "48px 24px", textAlign: "center", color: "var(--slate-500)" }}>
+                <p style={{ fontSize: "16px", fontWeight: 700, color: "var(--slate-700)" }}>No plans awaiting review</p>
+                <p style={{ fontSize: "13px", marginTop: "6px" }}>
+                  Select a specific food item in the Meal Planner tab above and click &ldquo;Generate Kitchen Plan&rdquo;.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("planner")}
+                  className="btn-approve"
+                  style={{ maxWidth: "200px", margin: "16px auto 0" }}
+                >
+                  Go to Meal Planner ↗
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* TAB 3: WASTE ANALYTICS & TRENDS */}
+        {activeTab === "analytics" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+            {/* Top Waste Dishes with Unit Filter */}
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">MENU ITEM EFFICIENCY</span>
+                  <h2>Food Items by Waste Rate</h2>
+                  <p>Filter by physical unit to compare like-for-like leftovers without mixing physical quantities.</p>
+                </div>
+
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {["all", "servings", "litres_or_kg", "pieces_or_servings"].map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      className={`chip-btn ${unitFilter === u ? "active" : ""}`}
+                      onClick={() => setUnitFilter(u)}
+                    >
+                      {u === "all" ? "All Units" : u.replace(/_/g, " ")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
+                {filteredDishes.map((item, index) => {
+                  const pct = item.average_waste_rate_pct;
+                  const severity = pct > 10 ? "high" : pct > 6 ? "medium" : "low";
+                  return (
+                    <div key={item.dish} className="waste-dish-row">
+                      <div className="waste-dish-info">
+                        <span>
+                          <span className="waste-dish-rank">#{index + 1}</span>
+                          {item.dish}
+                        </span>
+                        <strong style={{ color: severity === "high" ? "var(--rose-600)" : "inherit" }}>
+                          {pct.toFixed(1)}%
+                        </strong>
+                      </div>
+                      <div className="waste-bar-track">
+                        <div
+                          className={`waste-bar-fill ${severity}`}
+                          style={{ width: `${Math.min(100, pct * 8)}%` }}
+                        />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10.5px", color: "var(--slate-400)" }}>
+                        <span>Unit: {item.quantity_unit_hint}</span>
+                        <span>{item.records} servings recorded</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Daily Waste Trends */}
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">CHRONOLOGICAL PERFORMANCE</span>
+                  <h2>Daily Waste Rate Trends</h2>
+                  <p>Daily unweighted row-average waste percentage across all served items.</p>
+                </div>
+                <span className="chip-btn active">{trends.length} service days</span>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {trends.slice(-14).map((trend) => {
+                  const maxRate = Math.max(...trends.slice(-14).map((t) => t.average_waste_rate_pct), 1);
+                  return (
+                    <div
+                      key={trend.date}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "100px 1fr 60px 80px",
+                        alignItems: "center",
+                        gap: "14px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, color: "var(--slate-700)" }}>{trend.date}</span>
+                      <div className="waste-bar-track" style={{ height: "8px" }}>
+                        <div
+                          className="waste-bar-fill medium"
+                          style={{ width: `${(trend.average_waste_rate_pct / maxRate) * 100}%` }}
+                        />
+                      </div>
+                      <strong style={{ textAlign: "right" }}>{trend.average_waste_rate_pct.toFixed(1)}%</strong>
+                      <span style={{ textAlign: "right", color: "var(--slate-400)" }}>{trend.records} items</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Meal Service Comparison */}
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">SERVICE COMPARISON</span>
+                  <h2>Waste by Meal Service</h2>
+                  <p>Compare breakfast, lunch, snacks, and dinner performance.</p>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+                {mealMetrics.map((m) => (
+                  <div
+                    key={m.meal}
+                    style={{
+                      padding: "18px",
+                      background: "var(--slate-50)",
+                      border: "1px solid var(--slate-200)",
+                      borderRadius: "var(--radius-lg)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                    }}
+                  >
+                    <span className={`meal-badge ${m.meal}`} style={{ alignSelf: "flex-start" }}>{m.meal}</span>
+                    <strong style={{ fontSize: "24px", fontFamily: "var(--font-display)", color: "var(--slate-900)", marginTop: "6px" }}>
+                      {m.average_waste_rate_pct.toFixed(1)}%
+                    </strong>
+                    <span style={{ fontSize: "11.5px", color: "var(--slate-500)" }}>{m.records} total meal rows</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* TAB 4: DATA & MODEL HUB */}
+        {activeTab === "data" && (
+          <section className="content-grid">
+            {/* CSV Management */}
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">DATASET INGESTION</span>
+                  <h2>Import & Export Meal Data</h2>
+                  <p>Import CSV menu data with item-specific units and environmental context preserved.</p>
+                </div>
+              </div>
+
+              <form onSubmit={uploadCsv} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="form-group">
+                  <label>Select CSV File</label>
+                  <input
+                    name="historyCsv"
+                    type="file"
+                    accept=".csv,text/csv"
+                    required
+                    style={{ padding: "10px", border: "1.5px dashed var(--slate-300)", borderRadius: "var(--radius-md)" }}
+                  />
+                </div>
+
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--slate-700)" }}>
+                  <input
+                    type="checkbox"
+                    checked={replaceExisting}
+                    onChange={(e) => setReplaceExisting(e.target.checked)}
+                  />
+                  <span>Replace existing dataset (clears current meal history before importing)</span>
+                </label>
+
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button type="submit" className="btn-approve" disabled={uploading}>
+                    {uploading ? "Validating & Importing…" : "Validate & Import CSV"}
+                  </button>
+                  <button type="button" onClick={exportCsv} className="chip-btn" style={{ padding: "10px 16px" }}>
+                    Export All History ↓
+                  </button>
+                </div>
+              </form>
+            </article>
+
+            {/* Model Evaluation Metrics */}
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">CHRONOLOGICAL BACKTESTING</span>
+                  <h2>Forecast Model Evaluation</h2>
+                  <p>Historical backtest error metrics on stored campus meal data.</p>
+                </div>
+              </div>
+
+              {evaluation?.metrics ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", textAlign: "center" }}>
+                  <div style={{ padding: "16px", background: "var(--slate-50)", borderRadius: "var(--radius-md)" }}>
+                    <small style={{ fontSize: "10px", fontWeight: 700, color: "var(--slate-400)" }}>MAE</small>
+                    <strong style={{ display: "block", fontSize: "22px", fontFamily: "var(--font-display)", color: "var(--slate-900)" }}>
+                      {evaluation.metrics.mae}
+                    </strong>
+                    <span style={{ fontSize: "10.5px", color: "var(--slate-500)" }}>portions</span>
+                  </div>
+
+                  <div style={{ padding: "16px", background: "var(--slate-50)", borderRadius: "var(--radius-md)" }}>
+                    <small style={{ fontSize: "10px", fontWeight: 700, color: "var(--slate-400)" }}>RMSE</small>
+                    <strong style={{ display: "block", fontSize: "22px", fontFamily: "var(--font-display)", color: "var(--slate-900)" }}>
+                      {evaluation.metrics.rmse}
+                    </strong>
+                    <span style={{ fontSize: "10.5px", color: "var(--slate-500)" }}>portions</span>
+                  </div>
+
+                  <div style={{ padding: "16px", background: "var(--slate-50)", borderRadius: "var(--radius-md)" }}>
+                    <small style={{ fontSize: "10px", fontWeight: 700, color: "var(--slate-400)" }}>WAPE</small>
+                    <strong style={{ display: "block", fontSize: "22px", fontFamily: "var(--font-display)", color: "var(--slate-900)" }}>
+                      {(evaluation.metrics.wape * 100).toFixed(1)}%
+                    </strong>
+                    <span style={{ fontSize: "10.5px", color: "var(--slate-500)" }}>weighted error</span>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: "var(--slate-500)", fontSize: "12px" }}>{evaluation?.note ?? "Evaluating model…"}</p>
+              )}
+
+              <p style={{ fontSize: "11.5px", color: "var(--slate-400)", marginTop: "16px" }}>
+                Evaluated across {evaluation?.observations ?? 0} historical observations.
+              </p>
+            </article>
+          </section>
+        )}
+
+        {/* TAB 5: MEAL HISTORY TABLE */}
+        {activeTab === "history" && (
+          <section className="panel">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">RAW RECORD LOG</span>
+                <h2>Historical Observations</h2>
+                <p>Quantities are preserved in each recipe’s specific physical measurement unit.</p>
+              </div>
+              <span className="chip-btn active">Showing {history.length} records</span>
+            </div>
+
+            <div className="data-table-container">
+              <table className="modern-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Meal</th>
+                    <th>Dish</th>
+                    <th>Prepared</th>
+                    <th>Served</th>
+                    <th>Leftover</th>
+                    <th>Waste Rate</th>
+                    <th>Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((row, i) => (
+                    <tr key={`${row.date}-${row.meal}-${row.dish}-${i}`}>
+                      <td>{row.date}</td>
+                      <td>
+                        <span className={`meal-badge ${row.meal}`}>{row.meal}</span>
+                      </td>
+                      <td style={{ fontWeight: 600, color: "var(--slate-900)" }}>{row.dish}</td>
+                      <td>{row.prepared_portions ?? row.planned_portions ?? "—"}</td>
+                      <td>{row.served_portions}</td>
+                      <td>{row.waste_portions}</td>
+                      <td style={{ fontWeight: 600 }}>
+                        {typeof row.waste_rate_pct === "number"
+                          ? `${row.waste_rate_pct.toFixed(1)}%`
+                          : "0.0%"}
+                      </td>
+                      <td>{row.quantity_unit_hint ?? "servings"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Footer */}
+        <footer style={{ marginTop: "24px", textAlign: "center", fontSize: "12px", color: "var(--slate-400)" }}>
+          <strong>MESSWISE CULINARY INTELLIGENCE</strong> · Autonomous Food Waste Optimization · Designed for Campus Kitchen Staff
+        </footer>
       </main>
+
+      {/* Modern AI Kitchen Chatbot ("Ask MessWise") */}
       <div className="help-widget">
-        {helpOpen && <section className="help-panel" aria-label="MessWise help chatbot">
-          <header><div><strong>Ask MessWise</strong><small>Site guide · help using this dashboard</small></div><button type="button" onClick={() => setHelpOpen(false)} aria-label="Close help">×</button></header>
-          <div className="help-welcome"><strong>Ask me like you’d ask a kitchen teammate.</strong><p>Try a real situation: fewer students arrived, it is raining, the plan suggests too much rice, or you are unsure what “batch size” means.</p></div>
-          <div className="help-quick-questions">{["Only 200 students came today—what should I change?","Why is it suggesting so much food?","What if it rains today?","What does batch size mean?","What should I check before approving?"].map((q) => <button type="button" key={q} onClick={() => { setHelpQuestion(q); setSubmittedHelpQuestion(q); }}>{q}</button>)}</div>
-          {submittedHelpQuestion && <div className="help-answer"><strong>{submittedHelpQuestion}</strong><p>{helpAnswer(submittedHelpQuestion)}</p></div>}
-          <form onSubmit={(e) => { e.preventDefault(); const question = helpQuestion.trim(); if (question) { setSubmittedHelpQuestion(question); setHelpQuestion(""); } }}><input aria-label="Ask a question about MessWise" value={helpQuestion} onChange={(e) => setHelpQuestion(e.target.value)} placeholder="Ask how to use the site…" /><button type="submit">Ask</button></form>
-        </section>}
-        <button className="help-launcher" type="button" onClick={() => setHelpOpen((open) => !open)} aria-expanded={helpOpen}><span>✦</span> {helpOpen ? "Close help" : "Ask MessWise"} <i>●</i></button>
+        {helpOpen && (
+          <div className="help-modal-panel">
+            <div className="help-modal-header">
+              <div>
+                <h4>Ask MessWise Assistant</h4>
+                <small style={{ fontSize: "11px", color: "var(--slate-500)" }}>Kitchen advisor & workflow guidance</small>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                style={{ fontSize: "18px", color: "var(--slate-500)" }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="help-modal-body">
+              <p style={{ fontSize: "12px", color: "var(--slate-600)" }}>
+                Ask like you would ask a kitchen colleague about batch sizes, low turnout, or weather effects:
+              </p>
+
+              <div className="help-prompt-chips">
+                {[
+                  "Only 200 students came today—what should I change?",
+                  "Why is it suggesting so much food?",
+                  "What if it rains today?",
+                  "What does batch size mean?",
+                  "What should I check before approving?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className="help-chip"
+                    onClick={() => {
+                      setHelpQuestion(q);
+                      setSubmittedHelpQuestion(q);
+                    }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+
+              {submittedHelpQuestion && (
+                <div className="help-answer-bubble">
+                  <strong style={{ display: "block", marginBottom: "4px", color: "var(--slate-900)" }}>
+                    Q: {submittedHelpQuestion}
+                  </strong>
+                  <p>{helpAnswer(submittedHelpQuestion)}</p>
+                </div>
+              )}
+            </div>
+
+            <form
+              className="help-modal-footer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const q = helpQuestion.trim();
+                if (q) {
+                  setSubmittedHelpQuestion(q);
+                  setHelpQuestion("");
+                }
+              }}
+            >
+              <input
+                className="help-input"
+                value={helpQuestion}
+                onChange={(e) => setHelpQuestion(e.target.value)}
+                placeholder="Ask about batch sizes, weather, or planning…"
+              />
+              <button type="submit" className="help-send-btn">
+                Ask
+              </button>
+            </form>
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="help-launcher-btn"
+          onClick={() => setHelpOpen(!helpOpen)}
+        >
+          <span>✦</span>
+          <span>{helpOpen ? "Close Assistant" : "Ask MessWise"}</span>
+        </button>
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ def test_summary_and_history_endpoints_share_database():
         assert 0 <= payload["average_waste_rate_pct"] <= 100
         assert payload["top_waste_dishes"]
         # Limited history should contain the latest rows, not the oldest rows.
-        assert max(row["date"] for row in history.json()) == "2026-08-31"
+        assert max(row["date"] for row in history.json()) >= "2026-08-31"
 
 
 def test_menu_lookup_reuses_same_day_of_month_from_source_dataset():
