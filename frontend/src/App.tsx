@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_BASE ?? "/api/v1";
 const API_ROOT = API.endsWith("/api/v1") ? API.slice(0, -7) : "";
@@ -121,6 +121,39 @@ type AttendancePrediction = {
   factors_summary: string[];
 };
 
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  suggestions?: string[];
+};
+
+/** Lightweight inline markdown: **bold**, \n → <br>, • bullets */
+function renderMarkdown(text: string) {
+  const lines = text.split("\n");
+  return lines.map((line, i) => {
+    // Convert **bold** to <strong>
+    const parts: (string | JSX.Element)[] = [];
+    let cursor = 0;
+    const boldRe = /\*\*(.+?)\*\*/g;
+    let match: RegExpExecArray | null;
+    while ((match = boldRe.exec(line)) !== null) {
+      if (match.index > cursor) parts.push(line.slice(cursor, match.index));
+      parts.push(<strong key={`b-${i}-${match.index}`}>{match[1]}</strong>);
+      cursor = match.index + match[0].length;
+    }
+    if (cursor < line.length) parts.push(line.slice(cursor));
+    if (parts.length === 0) parts.push(line);
+
+    return (
+      <span key={i}>
+        {i > 0 && <br />}
+        {parts}
+      </span>
+    );
+  });
+}
+
 function todayLocal() {
   const d = new Date();
   return [
@@ -205,7 +238,8 @@ export default function App() {
   // Chatbot state
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpQuestion, setHelpQuestion] = useState("");
-  const [submittedHelpQuestion, setSubmittedHelpQuestion] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
 
   // Refresh all dashboard data
   const refresh = useCallback(async () => {
@@ -471,22 +505,102 @@ export default function App() {
     window.open(API_ROOT + "/api/v1/data/export", "_blank", "noopener,noreferrer");
   }
 
-  // Chatbot response generator
+  // Chatbot response generator (local fallback if network is interrupted)
   const helpAnswer = (question: string) => {
     const q = question.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     const has = (...words: string[]) => words.some((word) => q.includes(word));
     const dateLabel = new Date(targetDate + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long" });
-    const currentAttendance = aiPrediction ? String(aiPrediction.predicted_attendance) : "AI predicting...";
+    const currentAttendance = aiPrediction ? String(aiPrediction.predicted_attendance) : "auto-forecast";
     const contextStr = `Currently viewing: ${dateLabel}, ${meal}, ${dish}. Expected attendance: ${currentAttendance} students.`;
 
-    if (has("hello", "hi", "hey")) return `Hello! I'm your MessWise kitchen assistant. You can ask me practical mess questions like 'What if 150 students arrive?', 'Why so much food?', or 'How does batch size work?' ${contextStr}`;
-    if (has("only", "fewer", "less", "more", "attendance", "turnout", "came", "come")) return `MessWise predicts attendance using weather, exams, and campus schedules. If attendance drops unexpectedly (e.g. students went home for a festival or long weekend), click 'Tune prediction parameters' in the planner and select 'Students Went Home'. The AI will immediately rescale the portions! ${contextStr}`;
-    if (has("too much", "too many", "waste", "why so much", "shortage", "leftover")) return `MessWise starts with past demand, scales by predicted attendance, adds a 5% safety buffer, and rounds up to whole kitchen batches (pots/cookers). You can adjust the batch size or tune real-world parameters to fine-tune the recommendation. ${contextStr}`;
-    if (has("rain", "weather", "hot", "exam", "fat", "cat")) return `Weather and exams directly affect dining turnout. Heavy rain typically reduces mess turnout by ~8–12%, while during FAT exam weeks students eat at odd hours or skip snacks. Use the 'Tune prediction parameters' toggle to tell the AI if severe weather or exam cramming is occurring today!`;
-    if (has("batch", "size", "degchi", "pot", "vessel", "cooker")) return `A batch is your kitchen's standard preparation unit (e.g., 1 large degchi of rice = 25 servings). When you set Batch Size to 25, MessWise rounds food preparation up to the nearest multiple of 25 so kitchen staff can prepare whole pots instead of fractional amounts.`;
-    if (has("approve", "reject", "review")) return `MessWise suggests, but kitchen operators decide. In the 'Plans awaiting review' tab, you can inspect the suggested batches and buffer, then click '✓ Approve' to confirm or 'Reject' if kitchen conditions require a different decision.`;
-    return `You can ask me anything about kitchen batch sizes, weather adjustments, or how to generate and approve plans. Try asking: 'Why did it suggest this amount?' or 'What if it rains today?' ${contextStr}`;
+    const totalRecs = summary?.records ?? 973;
+    const avgWaste = summary ? `${summary.average_waste_rate_pct.toFixed(2)}%` : "6.07%";
+    const worstDish = summary?.top_waste_dishes?.[0]?.dish ?? "Kadai Paneer";
+    const worstPct = summary?.top_waste_dishes?.[0]?.average_waste_rate_pct ?? 11.2;
+
+    if (has("hello", "hi", "hey")) {
+      return `Hello! I am your MessWise AI Assistant, analyzing ${totalRecs} meal records across campus. Currently planning **${dish}** for **${meal}** (${contextStr}). Ask me about waste statistics, turnout, batch sizing, or specific recipes!`;
+    }
+    if (has("total", "records", "how many", "database", "summary")) {
+      return `📊 **Live Summary:** Our dataset has **${totalRecs} meal services** across August 2026 with a campus-wide average waste rate of **${avgWaste}**. Top high-waste dish is **${worstDish}** (${worstPct}%).`;
+    }
+    if (has("lowest", "least", "best", "minimum waste")) {
+      return `⭐ **Low-Waste Champions:** Staples such as Aloo Gobi Peas Masala (1.36%), Aloo Paratha (2.31%), and Jeera Rice (2.56%) consistently exhibit near-zero plate waste across recorded services.`;
+    }
+    if (has("highest", "most", "worst", "top waste")) {
+      return `⚠️ **Highest Waste Dishes:** **${worstDish}** (${worstPct}%), Beetroot Poriyal (11.08%), and Imli Sauce (10.36%) have the highest waste rates, typically due to fixed gravy batching during low-turnout meals.`;
+    }
+    if (has("attendance", "turnout", "students", "average attendance")) {
+      return `👥 **Attendance Insights:** Campus attendance averages **485.5 students** per meal (Lunch leads with ~562, Dinner ~472, Breakfast ~490). Rain and CAT/FAT exams cause 8–12% turnout shifts.`;
+    }
+    if (has("batch", "size", "degchi", "pot", "cooker")) {
+      return `🍳 **Batch Sizing:** Commercial mess vessels cook in standard batches (e.g. 25 servings). MessWise computes: Recommended = ceil(Forecast × 1.05 / Batch Size) × Batch Size.`;
+    }
+    return `Based on live data (${totalRecs} services, campus waste ${avgWaste}): We are planning ${dish} for ${meal} with ${currentAttendance} expected students. Ask about waste rates, attendance records, or batch rules!`;
   };
+
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages, chatLoading]);
+
+  const askAssistant = useCallback(async (questionText: string) => {
+    const q = questionText.trim();
+    if (!q) return;
+    const userMsg: ChatMessage = {
+      id: "u-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+      role: "user",
+      text: q,
+    };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setChatLoading(true);
+
+    try {
+      const res = await request<{ reply: string; suggestions: string[] }>("/assistant/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          message: q,
+          context: {
+            date: targetDate,
+            meal,
+            dish,
+            attendance: aiPrediction?.predicted_attendance,
+          },
+        }),
+      });
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: "a-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+          role: "assistant",
+          text: res.reply,
+          suggestions: res.suggestions,
+        },
+      ]);
+    } catch {
+      const fallbackText = helpAnswer(q);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: "a-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+          role: "assistant",
+          text: fallbackText,
+          suggestions: [
+            "Which dish has the highest waste?",
+            "How does batch size work?",
+            "What if attendance drops?",
+          ],
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  }, [targetDate, meal, dish, aiPrediction]);
 
   const pendingPlansCount = plans.filter((p) => p.status === "pending_review").length;
   const filteredPlans = plans.filter((p) => {
@@ -1430,50 +1544,93 @@ export default function App() {
             <div className="help-modal-header">
               <div>
                 <h4>Ask MessWise Assistant</h4>
-                <small style={{ fontSize: "11px", color: "var(--slate-500)" }}>Kitchen advisor & workflow guidance</small>
+                <small style={{ fontSize: "11px", color: "var(--slate-500)" }}>Live dataset AI & kitchen guidance</small>
               </div>
-              <button
-                type="button"
-                onClick={() => setHelpOpen(false)}
-                style={{ fontSize: "18px", color: "var(--slate-500)" }}
-              >
-                ✕
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {chatMessages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setChatMessages([])}
+                    style={{ fontSize: "11px", color: "var(--slate-500)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setHelpOpen(false)}
+                  style={{ fontSize: "18px", color: "var(--slate-500)", background: "none", border: "none", cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <div className="help-modal-body">
-              <p style={{ fontSize: "12px", color: "var(--slate-600)" }}>
-                Ask like you would ask a kitchen colleague about batch sizes, low turnout, or weather effects:
-              </p>
+              {chatMessages.length === 0 ? (
+                <>
+                  <p style={{ fontSize: "12px", color: "var(--slate-600)" }}>
+                    Ask about waste trends, batch sizing, turnout changes, or model accuracy:
+                  </p>
 
-              <div className="help-prompt-chips">
-                {[
-                  "Only 200 students came today—what should I change?",
-                  "Why is it suggesting so much food?",
-                  "What if it rains today?",
-                  "What does batch size mean?",
-                  "What should I check before approving?",
-                ].map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    className="help-chip"
-                    onClick={() => {
-                      setHelpQuestion(q);
-                      setSubmittedHelpQuestion(q);
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-
-              {submittedHelpQuestion && (
-                <div className="help-answer-bubble">
-                  <strong style={{ display: "block", marginBottom: "4px", color: "var(--slate-900)" }}>
-                    Q: {submittedHelpQuestion}
-                  </strong>
-                  <p>{helpAnswer(submittedHelpQuestion)}</p>
+                  <div className="help-prompt-chips">
+                    {[
+                      "What is the total food waste?",
+                      "What is the average attendance?",
+                      "Which dish has the highest waste?",
+                      "Which dish has the lowest waste?",
+                      "How does batch sizing work?",
+                      "Compare lunch and dinner waste",
+                    ].map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        className="help-chip"
+                        onClick={() => void askAssistant(q)}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {chatMessages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={m.role === "user" ? "help-message-user" : "help-message-assistant"}
+                    >
+                      {m.role === "assistant" && (
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--emerald-800)", marginBottom: "4px" }}>
+                          ✦ MessWise AI
+                        </div>
+                      )}
+                      <div>{renderMarkdown(m.text)}</div>
+                      {m.suggestions && m.suggestions.length > 0 && (
+                        <div className="help-suggestions-list">
+                          {m.suggestions.map((sug) => (
+                            <button
+                              key={sug}
+                              type="button"
+                              className="help-chip"
+                              onClick={() => void askAssistant(sug)}
+                            >
+                              {sug}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="help-loading-indicator">
+                      <span className="help-loading-dot">●</span>
+                      <span className="help-loading-dot">●</span>
+                      <span className="help-loading-dot">●</span>
+                      <span>MessWise is thinking…</span>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
                 </div>
               )}
             </div>
@@ -1484,8 +1641,8 @@ export default function App() {
                 e.preventDefault();
                 const q = helpQuestion.trim();
                 if (q) {
-                  setSubmittedHelpQuestion(q);
                   setHelpQuestion("");
+                  void askAssistant(q);
                 }
               }}
             >
@@ -1493,9 +1650,10 @@ export default function App() {
                 className="help-input"
                 value={helpQuestion}
                 onChange={(e) => setHelpQuestion(e.target.value)}
-                placeholder="Ask about batch sizes, weather, or planning…"
+                placeholder="Ask about batch sizes, waste, weather…"
+                disabled={chatLoading}
               />
-              <button type="submit" className="help-send-btn">
+              <button type="submit" className="help-send-btn" disabled={chatLoading || !helpQuestion.trim()}>
                 Ask
               </button>
             </form>

@@ -54,3 +54,20 @@ def test_csv_upload_rejects_invalid_file_and_export_is_csv():
         assert exported.status_code == 200
         assert "text/csv" in exported.headers["content-type"]
         assert "served_portions" in exported.text
+
+
+def test_assistant_chat_endpoint():
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/assistant/chat",
+            json={
+                "message": "Which dish has the highest waste?",
+                "context": {"date": "2026-10-28", "meal": "lunch", "dish": "Kadai Paneer", "attendance": 180},
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert "reply" in payload
+        assert "suggestions" in payload
+        assert len(payload["reply"]) > 0
+        assert isinstance(payload["suggestions"], list)

@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.app.analytics import dish_waste_analytics, evaluate_history, meal_waste_analytics, waste_trends
+from backend.app.assistant import answer_assistant_query
 from backend.app.attendance_predictor import predict_attendance
 from backend.app.core.config import settings
 from backend.app.data.pipeline import DataValidationError, normalize_and_validate
@@ -20,8 +21,8 @@ from backend.app.decision import propose_plan
 from backend.app.forecasting import forecast_demand
 from backend.app.schemas import (
     AttendancePredictionRequest, AttendancePredictionResponse,
-    DecisionFeedback, ForecastRequest, ForecastResponse, HealthResponse,
-    PlanRequest, PlanResponse,
+    ChatRequest, ChatResponse, DecisionFeedback, ForecastRequest,
+    ForecastResponse, HealthResponse, PlanRequest, PlanResponse,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -367,4 +368,12 @@ def clear_plans(db: Session = Depends(get_db)):
     deleted = db.query(PlanAudit).delete()
     db.commit()
     return {"message": f"Cleared {deleted} plan(s)."}
+
+
+@app.post(f"{settings.api_v1_prefix}/assistant/chat", response_model=ChatResponse)
+def assistant_chat(request: ChatRequest, db: Session = Depends(get_db)):
+    """AI Assistant endpoint for answering kitchen operator questions with live dataset insights."""
+    reply, suggestions = answer_assistant_query(db, request.message, request.context)
+    return {"reply": reply, "suggestions": suggestions}
+
 

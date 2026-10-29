@@ -95,3 +95,14 @@ class DecisionFeedback(BaseModel):
     approved: bool
     reviewer: str = Field(default="kitchen_operator", min_length=1, max_length=80)
     note: str = Field(default="", max_length=500)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+    context: dict | None = None
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    suggestions: list[str] = Field(default_factory=list)
+
